@@ -1,3 +1,4 @@
+#pragma once
 #include <bits/stdint-uintn.h>
 #include <stdint.h>
 typedef uint8_t u8;
@@ -16,10 +17,10 @@ typedef struct stream stream;
 enum pixel_format : u8 { RGBA32, RGB24, DICT8, DICT16 };
 typedef enum pixel_format pixel_format;
 struct bitmap {
-  u8 *ptr;
   u32 x;
   u32 y;
   pixel_format format;
+  u8 *ptr;
 };
 typedef struct bitmap bitmap;
 bitmap *create_bitmap(u32 size_x, u32 size_y, pixel_format fmt);
