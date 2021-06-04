@@ -1,4 +1,5 @@
 #include "image.h"
+#include "types.h"
 #include <stdlib.h>
 #include <string.h>
 image *encode(bitmap *raw) {
@@ -11,11 +12,17 @@ image *encode(bitmap *raw) {
   memcpy(img->pixels.ptr, raw->ptr, raw->x * raw->y * format_bpp(raw->format));
   return img;
 }
-stream serlaize(image *img) {
+bitmap *decode(image *img) {
+  bitmap *map = create_bitmap(img->pixels.x, img->pixels.y, img->pixels.format);
+  memcpy(map->ptr, img->pixels.ptr, map->x * map->y * format_bpp(map->format));
+  return map;
+}
+stream seralize(image *img) {
   stream str;
   str.size = sizeof(u32) + sizeof(u32) + sizeof(u8) + sizeof(u32) +
              sizeof(u32) + sizeof(u8) +
              (img->pixels.x * img->pixels.y * format_bpp(img->pixels.format));
+  str.ptr = (u8 *)malloc(str.size);
   u64 offset = 0;
   // comping header
   memcpy((u8 *)str.ptr + offset, img, 2 * sizeof(u32) + sizeof(u8));
@@ -35,13 +42,9 @@ image *deserialize(stream str) {
   offset += sizeof(u32) * 2 + sizeof(u8);
   memcpy(&img->pixels, (u8 *)str.ptr + offset, 2 * sizeof(u32) + sizeof(u8));
   offset += sizeof(u32) * 2 + sizeof(u8);
-  u64 new_size = sizeof(image) +
-                 img->pixels.x * img->pixels.y * format_bpp(img->pixels.format);
-  if (str.size < new_size) {
-    return NULL;
-  }
-  img = (image *)realloc(img, new_size);
-  memcpy(img->pixels.ptr, (u8 *)str.ptr + offset,
-         img->pixels.x * img->pixels.y * format_bpp(img->pixels.format));
+  u64 data_size =
+      img->pixels.x * img->pixels.y * format_bpp(img->pixels.format);
+  img->pixels.ptr = (u8 *)malloc(data_size);
+  memcpy(img->pixels.ptr, (u8 *)str.ptr + offset, data_size);
   return img;
 }

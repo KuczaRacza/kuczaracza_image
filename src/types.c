@@ -1,6 +1,6 @@
 #include "types.h"
 #include <stdlib.h>
-bitmap *create_bitmap(u32 size_x, u32 size_y, pixel_format fmt) {
+bitmap *create_bitmap(u32 size_x, u32 size_y, u8 fmt) {
   u8 bpp = format_bpp(fmt);
   u32 map_size = size_x * size_y * bpp;
   bitmap *b = (bitmap *)malloc(sizeof(bitmap) + map_size);
@@ -10,7 +10,7 @@ bitmap *create_bitmap(u32 size_x, u32 size_y, pixel_format fmt) {
   b->ptr = (u8 *)b + sizeof(bitmap);
   return b;
 }
-u8 format_bpp(pixel_format fmt) {
+u8 format_bpp(u8 fmt) {
   u8 bpp;
   switch (fmt) {
   case RGBA32:
@@ -65,4 +65,4 @@ void set_pixel(u32 x, u32 y, bitmap *map, u32 color) {
     *pixel_address = (u8)color;
     break;
   };
-};
+}

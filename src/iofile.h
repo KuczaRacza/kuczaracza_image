@@ -7,6 +7,6 @@ struct image;
 typedef struct image image;
 
 void write(stream *wr, char *path);
-stream *read(char *path);
-SDL_Surface *image_to_sdl(image *img);
-image *sdl_to_image(SDL_Surface *surf);
+stream read(char *path);
+SDL_Surface *bitmap_to_sdl(bitmap *img);
+bitmap *sdl_to_bitmap(SDL_Surface *surf);

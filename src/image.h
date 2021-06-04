@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-enum compression : u8 {
+enum compression {
   PALLETE = 0x1,
   QUANTIZATION = 0x2,
   QUAD_TREE = 0x4,
@@ -10,12 +10,12 @@ typedef enum compression compression;
 struct image {
   u32 size_x;
   u32 size_y;
-  compression comp;
+  u8 comp;
   bitmap pixels;
-
 };
 typedef struct image image;
 
-image * encode(bitmap * raw);
-stream serialize(image * img);
-image *  deserialize(stream str);
+image *encode(bitmap *raw);
+bitmap *decode(image *img);
+stream seralize(image *img);
+image *deserialize(stream str);
