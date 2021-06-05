@@ -41,7 +41,7 @@ SDL_Surface *bitmap_to_sdl(bitmap *img) {
     break;
   }
   SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
-      img->ptr, img->x, img->y, bpp * 8, img->x * bpp, pixelformat);
+      img->ptr, img->x, img->y, bpp * 8, img->row * bpp, pixelformat);
   return surf;
 }
 bitmap *sdl_to_bitmap(SDL_Surface *surf) {
@@ -61,8 +61,8 @@ bitmap *sdl_to_bitmap(SDL_Surface *surf) {
     break;
   }
 
-  bitmap *img = create_bitmap(surf->pitch / format_bpp(fmt), surf->h, fmt);
-  memcpy(img->ptr, surf->pixels, img->x * img->y * format_bpp(img->format));
+  bitmap *img = create_bitmap(surf->w, surf->h,surf->pitch/format_bpp(fmt), fmt);
+  memcpy(img->ptr, surf->pixels, img->y * img->row * format_bpp(img->format));
   return img;
   // work in progress
 }

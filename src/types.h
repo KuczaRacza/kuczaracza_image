@@ -14,16 +14,18 @@ struct stream {
   u64 size;
 };
 typedef struct stream stream;
-enum pixel_format  { RGBA32, RGB24, DICT8, DICT16 };
+enum pixel_format { RGBA32, RGB24, DICT8RGBA, DICT16RGBA, DICT16RGB, DICT8RGB };
 typedef enum pixel_format pixel_format;
 struct bitmap {
   u32 x;
   u32 y;
+  u32 row;
   u8 format;
   u8 *ptr;
 };
 typedef struct bitmap bitmap;
-bitmap *create_bitmap(u32 size_x, u32 size_y, u8 fmt);
+bitmap *create_bitmap(u32 size_x, u32 size_y, u32 row, u8 fmt);
+bitmap ref_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h);
 u32 get_pixel(u32 x, u32 y, bitmap *map);
 u8 format_bpp(u8 fmt);
 void set_pixel(u32 x, u32 y, bitmap *map, u32 color);
