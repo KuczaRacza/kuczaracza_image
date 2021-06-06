@@ -22,8 +22,8 @@ struct image {
   u32 size_x;
   u32 size_y;
   u8 format;
+  dict8_rgb dict; 
   bitmap *pixels;
-  dict8_rgba dict; 
 };
 typedef struct image image;
 
@@ -44,3 +44,5 @@ bitmap *pallete_8rgba(bitmap *bit, dict8_rgba *d);
 bitmap *depallete_8rgba(bitmap *bit, dict8_rgba * d);
 u8 add_color_8rgba(dict8_rgba *d, u32 color);
 u32 get_dict8rgba(u8 index, dict8_rgba *d);
+
+void linear_quantization(bitmap  *b,u32 quant);
