@@ -7,28 +7,27 @@ image *encode(bitmap *raw) {
   img->format = raw->format;
   img->size_x = raw->x;
   img->size_y = raw->y;
+  img->pixels = pallete_8rgba(raw, &img->dict);
   // = create_bitmap(raw->x, raw->y, raw->row, raw->format);
   // memcpy(img->pixels->ptr,raw->ptr, img->pixels->y * img->pixels->row *
   // format_bpp(img->pixels->format));
-  img->pixels = pallete_8rgb(raw, &img->dict);
   return img;
 }
 bitmap *decode(image *img) {
-  bitmap *map = depallete_8rgb(img->pixels, img->dict);
+  bitmap *map = depallete_8rgba(img->pixels, &img->dict);
   return map;
 }
 stream seralize(image *img) {
   stream str;
   str.size =
       sizeof(u32) + sizeof(u32) + sizeof(u8) + sizeof(u32) + sizeof(u32) +
-      sizeof(u8) + sizeof(u32) + sizeof(dict8_rgb) +
+      sizeof(u8) + sizeof(u32) + sizeof(dict8_rgba) +
       (img->pixels->row * img->pixels->y * format_bpp(img->pixels->format));
   str.ptr = (u8 *)malloc(str.size);
   u64 offset = 0;
   // comping header
-  memcpy((u8 *)str.ptr + offset, img,
-         2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgb));
-  offset += 2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgb);
+  memcpy((u8 *)str.ptr + offset, img, 2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgba));
+  offset += 2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgba);
   // coping bitmap header
   memcpy((u8 *)str.ptr + offset, img->pixels, 3 * sizeof(u32) + sizeof(u8));
   offset += 3 * sizeof(u32) + sizeof(u8);
@@ -41,9 +40,9 @@ image *deserialize(stream str) {
   image *img = (image *)malloc(sizeof(image));
   u64 offset = 0;
   // copying header
-  memcpy(img, (u8 *)str.ptr + offset,
-         2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgb));
-  offset += sizeof(u32) * 2 + sizeof(u8) + sizeof(dict8_rgb);
+  // add dict
+  memcpy(img, (u8 *)str.ptr + offset, 2 * sizeof(u32) + sizeof(u8) + sizeof(dict8_rgba));
+  offset += sizeof(u32) * 2 + sizeof(u8) + sizeof(dict8_rgba);
   // coping bitmap header
   bitmap tmp;
   memcpy(&tmp, (u8 *)str.ptr + offset, sizeof(u32) * 3 + sizeof(u8));
@@ -70,21 +69,22 @@ bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict) {
 #warning memory leak
   return replacement;
 }
-bitmap *depallete_8rgb(bitmap *bit, dict8_rgb d) {
+bitmap *depallete_8rgb(bitmap *bit, dict8_rgb *d) {
   bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGB24);
   for (u32 i = 0; i < bit->x; i++) {
     for (u32 j = 0; j < bit->y; j++) {
       u32 color = get_pixel(i, j, bit);
-      set_pixel(i, j, replacment, get_dict8rgb(color,&d));
+      set_pixel(i, j, replacment, get_dict8rgb(color, d));
     }
   }
   return replacment;
 }
-i16 add_color_8rgb(dict8_rgb *d, u32 color) {
+u8 add_color_8rgb(dict8_rgb *d, u32 color) {
 
   u8 *address = (u8 *)d->colors;
   for (u16 i = 0; i < d->size; i++) {
-    u32 dcol = address[0] | (address[1] << 8) | (address[2] << 16);
+    u32 dcol = 0;
+    memcpy(&dcol, address, 3);
     address = (u8 *)address + 3;
     if (dcol == color) {
       return i;
@@ -94,9 +94,7 @@ i16 add_color_8rgb(dict8_rgb *d, u32 color) {
     return 0;
   }
   address = (u8 *)d->colors + (d->size * 3);
-  address[0] = color & 0xFF;
-  address[1] = color >> 8 & 0xFF;
-  address[2] = color >> 16 & 0xFF;
+  memcpy(address, &color, 3);
   d->size++;
 
   return d->size - 1;
@@ -107,3 +105,39 @@ u32 get_dict8rgb(u8 index, dict8_rgb *d) {
   memcpy(&color, address, 3);
   return color;
 }
+bitmap *pallete_8rgba(bitmap *bit, dict8_rgba *d) {
+  bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGBA32);
+  for (u32 i = 0; i < bit->x; i++) {
+    for (u32 j = 0; j < bit->y; j++) {
+      u32 color = get_pixel(i, j, bit);
+      set_pixel(i, j, replacment,add_color_8rgba(d, color));
+    }
+  }
+  return replacment;
+}
+bitmap *depallete_8rgba(bitmap *bit, dict8_rgba *d) {
+  bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGBA32);
+  for (u32 i = 0; i < bit->x; i++) {
+    for (u32 j = 0; j < bit->y; j++) {
+      u32 color = get_pixel(i, j, bit);
+      set_pixel(i, j, replacment, get_dict8rgba(color, d));
+    }
+  }
+  return replacment;
+}
+u8 add_color_8rgba(dict8_rgba *d, u32 color) {
+
+  for (u16 i = 0; i < d->size; i++) {
+    if (d->colors[i] == color) {
+      return i;
+    }
+  }
+  if (d->size == 255) {
+    return 0;
+  }
+
+  d->colors[d->size] = color;
+  d->size++;
+  return d->size - 1;
+}
+u32 get_dict8rgba(u8 index, dict8_rgba *d) { return d->colors[index]; }

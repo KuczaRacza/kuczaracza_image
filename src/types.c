@@ -35,7 +35,7 @@ u8 format_bpp(u8 fmt) {
 u32 get_pixel(u32 x, u32 y, bitmap *map) {
   u8 bpp = format_bpp(map->format);
   u8 *pixel_address = map->ptr + (bpp * (y * map->row + x));
-  u32 pixel;
+  u32 pixel = 0;
   switch (bpp) {
   case 4:
     pixel = *(u32 *)pixel_address;
