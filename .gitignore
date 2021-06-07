@@ -2,3 +2,4 @@ build
 .vscode
 .cache
 *.kdev4
+tests/node_modules

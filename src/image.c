@@ -1,6 +1,7 @@
 #include "image.h"
 #include "types.h"
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 image *encode(bitmap *raw) {
   image *img = (image *)malloc(sizeof(image));
@@ -8,7 +9,7 @@ image *encode(bitmap *raw) {
   img->size_x = raw->x;
   img->size_y = raw->y;
 #warning writes to read only pointer
-  linear_quantization(raw, 100);
+  cubic_quantization(raw, 50, 1);
   img->pixels = pallete_8rgb(raw, &img->dict);
   // = create_bitmap(raw->x, raw->y, raw->row, raw->format);
   // memcpy(img->pixels->ptr,raw->ptr, img->pixels->y * img->pixels->row *
@@ -145,15 +146,30 @@ u8 add_color_8rgba(dict8_rgba *d, u32 color) {
   return d->size - 1;
 }
 u32 get_dict8rgba(u8 index, dict8_rgba *d) { return d->colors[index]; }
-void linear_quantization(bitmap *b, u32 quant) {
+void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
   for (u32 i = 0; i < b->x; i++) {
     for (u32 j = 0; j < b->y; j++) {
       u32 color = get_pixel(i, j, b);
       u8 *col = (u8 *)&color;
-      for (u8 k = 0; k < 4; k++) {
-        *col = (*col / quant) * quant;
+      for (u8 k = 0; k < ((alpha & 1) ? 4 : 3); k++) {
+
+        // works better with floats
+        col[k] = (col[k] / quant) * quant;
       }
-	  set_pixel(i, j, b, color);
+      set_pixel(i, j, b, color);
+    }
+  }
+}
+void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
+  for (u32 i = 0; i < b->x; i++) {
+    for (u32 j = 0; j < b->y; j++) {
+      u32 color = get_pixel(i, j, b);
+      u8 *col = (u8 *)&color;
+      for (u8 k = 0; k < ((alpha & 1) ? 4 : 3); k++) {
+        float dynamic_quant = (float)quant + (col[k] * 0.008f);
+        col[k] = floor(col[k] / dynamic_quant) * dynamic_quant;
+      }
+      set_pixel(i, j, b, color);
     }
   }
 }
