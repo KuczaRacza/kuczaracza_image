@@ -39,50 +39,54 @@ bitmap *decode(image *img) {
 }
 stream seralize(image *img) {
   stream str;
-  u32 part_length;
-  // image header
-  str.size = sizeof(u32) * 3 + sizeof(u8);
+  str.size = sizeof(u32) +  // size_x
+             sizeof(u32) +  // size_y
+             sizeof(u8) +   // format
+             sizeof(u32) +  // lenght
+             (sizeof(u16) + // x part
+              sizeof(u16) + // y part
+              sizeof(u16) + // w part
+              sizeof(u16) + // h part
+              sizeof(u8) +  // depth
+              sizeof(u32) + // bitamp x
+              sizeof(u32) + // bitamp y
+              sizeof(u32) + // bitmap row
+              sizeof(u8)    // bitamp format
+              ) * img->length;
+  u32 dict_size;
   switch (img->format) {
   case RGB24:
-    str.size +=
-        (sizeof(part24_rgb) - sizeof(u8 *) * 2 + sizeof(bitmap)) * img->length;
-    part_length = sizeof(dict8_rgb) + 4 * sizeof(u16) + sizeof(u8);
-
+    dict_size = sizeof(dict8_rgb);
     break;
 
   case RGBA32:
-    str.size +=
-        (sizeof(part32_rgba) - sizeof(u8 *) * 2 + sizeof(bitmap)) * img->length;
-    part_length  = sizeof(dict8_rgba) + 4 * sizeof(u16) + sizeof(u8);
-
+    dict_size = sizeof(dict8_rgba);
     break;
   }
+  str.size += dict_size * img->length;
   for (u32 i = 0; i < img->length; i++) {
-    str.size += img->parts[i].map->row * img->parts->map->y *
-                format_bpp(img->parts[i].map->format);
+    str.size += img->parts[i].w * img->parts[i].h * format_bpp(img->parts[i].map->format);
   }
-  str.ptr = (u8 *)malloc(str.size);
-  u64 offset = 0;
-  // comping header
-  memcpy((u8 *)str.ptr + offset, img, 3 * sizeof(u32) + sizeof(u8));
-  offset += 3 * sizeof(u32) + sizeof(u8);
-
+  str.ptr = malloc(str.size);
+  u32 offset = 0;
+  dstoffsetcopy(str.ptr, &img->size_x, &offset, sizeof(u32));
+  dstoffsetcopy(str.ptr, &img->size_y, &offset, sizeof(u32));
+  dstoffsetcopy(str.ptr, &img->format, &offset, sizeof(u8));
+  dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
   for (u32 i = 0; i < img->length; i++) {
-    // part header
-    memcpy((u8 *)str.ptr + offset, &img->parts[i], part_length);
-    offset += part_length;
-    // bitmap header
-    memcpy((u8 *)str.ptr + offset, img->parts[i].map,
-           3 * sizeof(u32) + sizeof(u8));
-    offset += 3 * sizeof(u32) + sizeof(u8);
-    // bitmap
-    memcpy((u8 *)str.ptr + offset, img->parts[i].map->ptr,
-           img->parts[i].map->row * img->parts->map->y *
-               format_bpp(img->parts[i].map->format));
-    offset += img->parts[i].map->row * img->parts->map->y *
-              format_bpp(img->parts[i].map->format);
+    dstoffsetcopy(str.ptr, &img->parts[i].x, &offset, sizeof(u16));
+    dstoffsetcopy(str.ptr, &img->parts[i].y, &offset, sizeof(u16));
+    dstoffsetcopy(str.ptr, &img->parts[i].w, &offset, sizeof(u16));
+    dstoffsetcopy(str.ptr, &img->parts[i].h, &offset, sizeof(u16));
+    dstoffsetcopy(str.ptr, &img->parts[i].depth, &offset, sizeof(u8));
+    dstoffsetcopy(str.ptr, &img->parts[i].dict, &offset, dict_size);
+    dstoffsetcopy(str.ptr, &img->parts[i].map->x, &offset, sizeof(u32));
+    dstoffsetcopy(str.ptr, &img->parts[i].map->y, &offset, sizeof(u32));
+    dstoffsetcopy(str.ptr, &img->parts[i].map->row, &offset, sizeof(u32));
+    dstoffsetcopy(str.ptr, &img->parts[i].map->format, &offset, sizeof(u8));
+    dstoffsetcopy(str.ptr, img->parts[i].map->ptr, &offset,
+                  img->parts[i].w * img->parts[i].h * format_bpp(img->parts[i].map->format));
   }
-
   return str;
 }
 image *deserialize(stream str) {
@@ -107,7 +111,7 @@ image *deserialize(stream str) {
     format = DICT8RGBA;
     break;
   }
-  
+
   for (u32 i = 0; i < img->length; i++) {
     memcpy(&img->parts[i], (u8 *)str.ptr + offset, part_length);
     offset += part_length;
