@@ -41,7 +41,7 @@ u32 get_pixel(u32 x, u32 y, bitmap *map) {
     pixel = *(u32 *)pixel_address;
     break;
   case 3:
-	memcpy(&pixel, pixel_address, 3);
+    memcpy(&pixel, pixel_address, 3);
     break;
   case 2:
     pixel = *(u16 *)pixel_address;
@@ -60,7 +60,7 @@ void set_pixel(u32 x, u32 y, bitmap *map, u32 color) {
     *(u32 *)pixel_address = color;
     break;
   case 3:
-		memcpy(pixel_address,&color, 3);
+    memcpy(pixel_address, &color, 3);
     break;
   case 2:
     *(u16 *)pixel_address = (u16)color;
@@ -70,13 +70,21 @@ void set_pixel(u32 x, u32 y, bitmap *map, u32 color) {
     break;
   };
 }
-bitmap ref_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h) {
-  bitmap b;
+bitmap *copy_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h) {
   u8 bpp = format_bpp(orgin->format);
-  b.x = w - x;
-  b.y = h - y;
-  b.row = orgin->row;
-  b.format = orgin->format;
-  b.ptr = (u8 *)orgin->ptr + (y * b.row * bpp) + (x * bpp);
+  bitmap *b = (bitmap *)malloc(sizeof(bitmap) + (bpp * orgin->x * orgin->y));
+  b->x = w - x;
+  b->y = h - y;
+  b->row = b->x;
+  b->format = orgin->format;
+  for (u32 i = 0; i < b->y; i++) {
+    memcpy((u8 *)b->ptr + (b->row * i * bpp),
+           (u8 *)orgin->ptr + (w * bpp) + (w), b->row * bpp);
+  }
   return b;
+}
+void free_bitmap(bitmap *b) { free(b); }
+void dstoffsetcopy(void *dst, void *src, u32 *offset, u32 size) {
+  memcpy((u8 *)dst + *offset,src ,size);
+  *offset += size;
 }
