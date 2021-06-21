@@ -31,3 +31,4 @@ u8 format_bpp(u8 fmt);
 void set_pixel(u32 x, u32 y, bitmap *map, u32 color);
 void free_bitmap(bitmap *b);
 void dstoffsetcopy(void *dst, void *src, u32 *offset, u32 size);
+void srcoffsetcopy(void *dst, void *src, u32 *offset, u32 size);

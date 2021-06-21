@@ -85,6 +85,10 @@ bitmap *copy_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h) {
 }
 void free_bitmap(bitmap *b) { free(b); }
 void dstoffsetcopy(void *dst, void *src, u32 *offset, u32 size) {
-  memcpy((u8 *)dst + *offset,src ,size);
+  memcpy((u8 *)dst + *offset, src, size);
+  *offset += size;
+}
+void srcoffsetcopy(void *dst, void *src, u32 *offset, u32 size) {
+  memcpy(dst, (u8 *)src + *offset, size);
   *offset += size;
 }
