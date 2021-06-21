@@ -65,3 +65,4 @@ u32 get_dict8rgba(u8 index, dict8_rgba *d);
 void linear_quantization(bitmap *b, u32 quant, u8 alpha);
 void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
 void rectangle_tree(image * img, bitmap * raw );
+u32 count_colors(bitmap * b);

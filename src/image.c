@@ -1,5 +1,6 @@
 #include "image.h"
 #include "types.h"
+#include <SDL2/SDL_pixels.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,9 @@ image *encode(bitmap *raw) {
     // img->parts->map = pallete_8rgba(raw, &img->parts->dict);
     break;
   }
+
+  u32 all_colors = count_colors(raw);
+  printf("all colors %d \n", all_colors);
   return img;
 }
 bitmap *decode(image *img) {
@@ -51,7 +55,7 @@ stream seralize(image *img) {
               sizeof(u8) +  // depth
               sizeof(u32) + // bitamp x
               sizeof(u32) + // bitamp y
-              sizeof(u32) + // bitmap row
+              sizeof(u32) + // bitmap rowcd
               sizeof(u8)    // bitamp format
               ) * img->length;
   u32 dict_size;
@@ -146,9 +150,8 @@ bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict) {
       u32 dcol = add_color_8rgb(dict, color);
       if (dcol == 193) {
         set_pixel(i, j, replacement, 1);
-      }
-      else {
-       set_pixel(i, j, replacement, dcol);
+      } else {
+        set_pixel(i, j, replacement, dcol);
       }
     }
   }
@@ -161,9 +164,8 @@ bitmap *depallete_8rgb(bitmap *bit, dict8_rgb *d) {
     for (u32 j = 0; j < bit->y; j++) {
       u32 color = get_pixel(i, j, bit);
       u32 dcol = get_dict8rgb(color, d);
-   
-        set_pixel(i, j, replacment, dcol);
 
+      set_pixel(i, j, replacment, dcol);
     }
   }
   return replacment;
@@ -279,4 +281,37 @@ void rectangle_tree(image *img, bitmap *raw) {
     break;
   }
   */
+}
+u32 count_colors(bitmap *b) {
+  u32 table;
+  switch (b->format) {
+  case RGB24:
+    table = 0xFFFFFF;
+    break;
+  case RGBA32:
+    table = 0xFFFFFF;
+    break;
+  case DICT8RGB:
+    table = 192;
+    break;
+  case DICT8RGBA:
+    table = 256;
+    break;
+  }
+  u8 *colors = calloc(1, table / 8);
+  for (u32 i = 0; i < b->x; i++) {
+    for (u32 j = 0; j < b->y; j++) {
+      u32 pixel = get_pixel(i, j, b);
+      u32 index = pixel / 8;
+      u32 bit = pixel % 8;
+      colors[index] = colors[index] | (u8)(1<<bit);
+    }
+  }
+  u32   count = 0;
+  for (u32 i = 0; i < table / 8; i++) {
+    for (u32 j = 0; j < 8; j++) {
+      count += colors[i] >> j & 1;
+    }
+  }
+  return count;
 }
