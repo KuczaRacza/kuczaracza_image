@@ -13,7 +13,7 @@ struct dict8_rgba {
 };
 struct dict8_rgb {
   u8 size;
-  u32 colors[192];
+  u32 colors[256];
 };
 
 typedef struct dict8_rgba dict8_rgba;

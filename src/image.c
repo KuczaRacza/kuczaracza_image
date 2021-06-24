@@ -10,36 +10,32 @@ image *encode(bitmap *raw) {
   img->format = raw->format;
   img->size_x = raw->x;
   img->size_y = raw->y;
-#warning writes to read only pointer
-  linear_quantization(raw, 50, 0);
-  img->length = 1;
-  switch (img->format) {
-  case RGB24:
-    img->parts = malloc(sizeof(part24_rgb));
-    break;
-  case RGBA32:
-    // img->parts = malloc(sizeof(part32_rgba));
-    break;
-  }
-  img->parts->x = 0;
-  img->parts->y = 0;
-  img->parts->w = raw->x;
-  img->parts->h = raw->y;
-  switch (img->format) {
-  case RGB24:
-    img->parts->map = pallete_8rgb(raw, &img->parts->dict);
-    break;
-  case RGBA32:
-    // img->parts->map = pallete_8rgba(raw, &img->parts->dict);
-    break;
-  }
+  bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
+  linear_quantization(raw, 10, 0);
+  rectangle_tree(img, raw);
 
-  u32 all_colors = count_colors(raw);
-  printf("all colors %d \n", all_colors);
   return img;
 }
 bitmap *decode(image *img) {
-  bitmap *map = depallete_8rgb(img->parts[0].map, &img->parts->dict);
+
+  bitmap *map =
+      create_bitmap(img->size_x, img->size_y, img->size_x, img->format);
+  if (img->format == RGB24) {
+
+    for (u32 i = 0; i < img->length; i++) {
+      bitmap *tmp = depallete_8rgb(img->parts[i].map, &img->parts[i].dict);
+	  part24_rgb * prt = &img->parts[i];
+	  //not optimalized
+      for (u32 j = 0; j < tmp->x; j++) {
+        for (u32 k = 0; k < tmp->y; k++) {
+          u32 color = get_pixel(j, k, tmp);
+          set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
+        }
+      }
+	  free_bitmap(tmp);
+    }
+  }
+
   return map;
 }
 stream seralize(image *img) {
@@ -181,9 +177,8 @@ u16 add_color_8rgb(dict8_rgb *d, u32 color) {
       return i;
     }
   }
-  if (d->size == 192) {
-    d->size = 0;
-    return 193;
+  if (d->size == 255) {
+    return 256;
   }
   address = (u8 *)d->colors + (d->size * 3);
   memcpy(address, &color, 3);
@@ -198,6 +193,7 @@ u32 get_dict8rgb(u8 index, dict8_rgb *d) {
   return color;
 }
 bitmap *pallete_8rgba(bitmap *bit, dict8_rgba *d) {
+  d->size = 0;
   bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGBA32);
   for (u32 i = 0; i < bit->x; i++) {
     for (u32 j = 0; j < bit->y; j++) {
@@ -269,27 +265,24 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 void rectangle_tree(image *img, bitmap *raw) {
-  /*
-  u32 depth = 0;
+  img->length = 2;
   switch (img->format) {
-  case RGBA32:
-    while (1) {
-
-    }
-    break;
   case RGB24:
+   
+  case RGBA32:
+
     break;
   }
-  */
 }
+
 u32 count_colors(bitmap *b) {
-  u32 table;
+  u64 table;
   switch (b->format) {
   case RGB24:
-    table = 0xFFFFFF;
+    table = 0x100000000;
     break;
   case RGBA32:
-    table = 0xFFFFFF;
+    table = 0x1000000;
     break;
   case DICT8RGB:
     table = 192;
@@ -304,10 +297,10 @@ u32 count_colors(bitmap *b) {
       u32 pixel = get_pixel(i, j, b);
       u32 index = pixel / 8;
       u32 bit = pixel % 8;
-      colors[index] = colors[index] | (u8)(1<<bit);
+      colors[index] = colors[index] | (u8)(1 << bit);
     }
   }
-  u32   count = 0;
+  u32 count = 0;
   for (u32 i = 0; i < table / 8; i++) {
     for (u32 j = 0; j < 8; j++) {
       count += colors[i] >> j & 1;

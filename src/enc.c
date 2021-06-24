@@ -17,6 +17,5 @@ int main(int argc, char **argv) {
   write(&str, argv[2]);
   free(str.ptr);
   SDL_FreeSurface(surf);
-  free(b);
   return 0;
 }

@@ -72,14 +72,13 @@ void set_pixel(u32 x, u32 y, bitmap *map, u32 color) {
 }
 bitmap *copy_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h) {
   u8 bpp = format_bpp(orgin->format);
-  bitmap *b = (bitmap *)malloc(sizeof(bitmap) + (bpp * orgin->x * orgin->y));
-  b->x = w - x;
-  b->y = h - y;
-  b->row = b->x;
-  b->format = orgin->format;
-  for (u32 i = 0; i < b->y; i++) {
-    memcpy((u8 *)b->ptr + (b->row * i * bpp),
-           (u8 *)orgin->ptr + (w * bpp) + (w), b->row * bpp);
+  bitmap *b = create_bitmap(w, h, w, orgin->format);
+  // not optimalized
+  for (u32 i = x; i < w + x; i++) {
+    for (u32 j = y; j < h + y; j++) {
+      u32 color = get_pixel(i, j, orgin);
+      set_pixel(i - x, j - y, b, color);
+    }
   }
   return b;
 }
