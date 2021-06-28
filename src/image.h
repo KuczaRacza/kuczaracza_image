@@ -6,6 +6,7 @@ enum compression {
   QUAD_TREE = 0x4,
   BLOCKS = 0x8
 };
+
 typedef enum compression compression;
 struct dict8_rgba {
   u8 size;

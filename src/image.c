@@ -265,14 +265,18 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 void rectangle_tree(image *img, bitmap *raw) {
-  img->length = 2;
-  switch (img->format) {
-  case RGB24:
-   
-  case RGBA32:
+	u32  color_count = count_colors(raw);
+	if(color_count>255){
 
-    break;
-  }
+	}
+	else {
+		switch (raw->format) {
+		 case RGBA32:
+		 
+		 break;
+		}
+	}
+  
 }
 
 u32 count_colors(bitmap *b) {
@@ -285,7 +289,7 @@ u32 count_colors(bitmap *b) {
     table = 0x1000000;
     break;
   case DICT8RGB:
-    table = 192;
+    table = 256;
     break;
   case DICT8RGBA:
     table = 256;

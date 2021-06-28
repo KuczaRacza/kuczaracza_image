@@ -91,3 +91,14 @@ void srcoffsetcopy(void *dst, void *src, u32 *offset, u32 size) {
   memcpy(dst, (u8 *)src + *offset, size);
   *offset += size;
 }
+void push_vector(vector *vec, void *data, u32 size) {
+  if (vec->size + size > vec->capacity) {
+    vec->data = realloc(vec->data, (vec->size + size) * 1.5f);
+    vec->capacity = (vec->size + size) * 1.5f;
+  }
+  memcpy((u8 *)vec->data + vec->size, data, size);
+  vec->size += size;
+}
+u8 *get_element_vector(vector *vec, u32 index, u32 size) {
+  return (u8 *)vec->data  + (size * index);
+}
