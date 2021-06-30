@@ -137,17 +137,17 @@ image *deserialize(stream str) {
 
   return img;
 }
-bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict) {
+bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict, rect area) {
   dict->size = 0;
-  bitmap *replacement = create_bitmap(bit->x, bit->y, bit->x, DICT8RGB);
-  for (u32 i = 0; i < bit->x; i++) {
-    for (u32 j = 0; j < bit->y; j++) {
+  bitmap *replacement = create_bitmap(area.w, area.h, area.w, DICT8RGB);
+  for (u32 i = area.x; i < area.w + area.x; i++) {
+    for (u32 j = area.y; j < area.h + area.y; j++) {
       u32 color = get_pixel(i, j, bit);
       u32 dcol = add_color_8rgb(dict, color);
-      if (dcol == 193) {
-        set_pixel(i, j, replacement, 1);
+      if (dcol == 256) {
+        set_pixel(i - area.x, j - area.y, replacement, 1);
       } else {
-        set_pixel(i, j, replacement, dcol);
+        set_pixel(i - area.x, j - area.y, replacement, dcol);
       }
     }
   }
@@ -265,38 +265,30 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 void rectangle_tree(image *img, bitmap *raw) {
-  u32 parts_no = 1;
-  u8 ok = 0;
-  while (ok != 1) {
-    ok = 1;
-    for (u32 i = 0; i < parts_no; i++) {
-      float part_size = (float)raw->x / parts_no;
-      u32 colornum = count_colors_rect(
-          raw, roundf(part_size * i), 0,
-          roundf(part_size * (i + 1)) - roundf(part_size * i), raw->x);
-      if (colornum > 255) {
-        ok = 0;
-        parts_no *= 2;
-        break;
-      }
-    }
+  vector vec;
+  vec.size = 0;
+  vec.capacity = 40;
+  vec.data = malloc(40);
+  rect start_area;
+  start_area.x = 0;
+  start_area.y = 0;
+  start_area.w = raw->x;
+  start_area.h = raw->y;
+  create_rect(&vec, raw, start_area, 0);
+  u32 elemnet_size = sizeof(rect) + sizeof(u8);
+  u32 length = vec.size / elemnet_size;
+  img->length = length;
+  img->parts = malloc(sizeof(part24_rgb) * length);
+  for (u32 i = 0; i < length; i++) {
+    rect trt = *(rect *)(vec.data + elemnet_size * i);
+    u8 td = *(u8 *)(vec.data + elemnet_size * i + sizeof(rect));
+    img->parts[i].x = trt.x;
+    img->parts[i].y = trt.y;
+    img->parts[i].w = trt.w;
+    img->parts[i].h = trt.h;
+    img->parts[i].map = pallete_8rgb(raw, &img->parts[i].dict, trt);
   }
-
-  img->parts = malloc(sizeof(part24_rgb) * parts_no);
-  float part_size = (float)raw->x / parts_no;
-  img->length = parts_no;
-  for (u32 i = 0; i < parts_no; i++) {
-    bitmap *tmp = copy_bitmap(
-        raw, roundf(part_size * i), 0,
-        roundf(part_size * (i + 1)) - roundf(part_size * i), raw->y);
-    img->parts[i].map = pallete_8rgb(tmp, &img->parts[i].dict);
-    img->parts[i].depth = 0;
-    img->parts[i].x = roundf(part_size * i);
-    img->parts[i].y = 0;
-    img->parts[i].w = roundf(part_size * (i + 1)) - roundf(part_size * i) -1;
-    img->parts[i].h = raw->y;
-    free_bitmap(tmp);
-  }
+  free(vec.data);
 }
 
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
@@ -313,6 +305,7 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
         }
       }
       if (unique == 1) {
+        colors[number] = pixel;
         if (number == 255) {
           return 256;
         } else {
@@ -325,3 +318,37 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
   return number;
 }
 u32 count_colors(bitmap *b) { return count_colors_rect(b, 0, 0, b->x, b->y); }
+void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
+  u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
+  if (cols > 255) {
+    rect arect;
+    rect brect;
+
+    if (depth % 2) {
+
+      arect.x = area.x;
+      arect.y = area.y;
+      arect.w = area.w / 2 - 1;
+      arect.h = area.h;
+      brect.x = area.x + area.w / 2;
+      brect.y = area.y;
+      brect.w = area.w - area.w / 2;
+      brect.h = area.h;
+
+    } else {
+      arect.x = area.x;
+      arect.y = area.y;
+      arect.w = area.w;
+      arect.h = area.h / 2 - 1;
+      brect.x = area.x;
+      brect.y = area.y + area.h / 2;
+      brect.w = area.w;
+      brect.h = area.h - area.h / 2;
+    }
+    create_rect(rects, raw, arect, depth + 1);
+    create_rect(rects, raw, brect, depth + 1);
+  } else {
+    push_vector(rects, &area, sizeof(area));
+    push_vector(rects, &depth, sizeof(u8));
+  }
+}

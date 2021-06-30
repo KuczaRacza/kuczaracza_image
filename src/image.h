@@ -53,7 +53,7 @@ bitmap *decode(image *img);
 stream seralize(image *img);
 image *deserialize(stream str);
 
-bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *d);
+bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *d,rect area);
 bitmap *depallete_8rgb(bitmap *bit, dict8_rgb *d);
 u16 add_color_8rgb(dict8_rgb *d, u32 color);
 u32 get_dict8rgb(u8 index, dict8_rgb *d);
@@ -68,3 +68,4 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
 void rectangle_tree(image *img, bitmap *raw);
 u32 count_colors(bitmap *b);
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
+void create_rect(vector* rects, bitmap *raw, rect area, u8 depth);
