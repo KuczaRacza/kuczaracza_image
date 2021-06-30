@@ -11,8 +11,8 @@ image *encode(bitmap *raw) {
   img->size_x = raw->x;
   img->size_y = raw->y;
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
-  linear_quantization(raw, 10, 0);
-  rectangle_tree(img, raw);
+  linear_quantization(copy, 15, 0);
+  rectangle_tree(img, copy);
 
   return img;
 }
@@ -24,15 +24,15 @@ bitmap *decode(image *img) {
 
     for (u32 i = 0; i < img->length; i++) {
       bitmap *tmp = depallete_8rgb(img->parts[i].map, &img->parts[i].dict);
-	  part24_rgb * prt = &img->parts[i];
-	  //not optimalized
+      part24_rgb *prt = &img->parts[i];
+      // not optimalized
       for (u32 j = 0; j < tmp->x; j++) {
         for (u32 k = 0; k < tmp->y; k++) {
           u32 color = get_pixel(j, k, tmp);
           set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
         }
       }
-	  free_bitmap(tmp);
+      free_bitmap(tmp);
     }
   }
 
@@ -265,50 +265,63 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 void rectangle_tree(image *img, bitmap *raw) {
-	u32  color_count = count_colors(raw);
-	if(color_count>255){
+  u32 parts_no = 1;
+  u8 ok = 0;
+  while (ok != 1) {
+    ok = 1;
+    for (u32 i = 0; i < parts_no; i++) {
+      float part_size = (float)raw->x / parts_no;
+      u32 colornum = count_colors_rect(
+          raw, roundf(part_size * i), 0,
+          roundf(part_size * (i + 1)) - roundf(part_size * i), raw->x);
+      if (colornum > 255) {
+        ok = 0;
+        parts_no *= 2;
+        break;
+      }
+    }
+  }
 
-	}
-	else {
-		switch (raw->format) {
-		 case RGBA32:
-		 
-		 break;
-		}
-	}
-  
+  img->parts = malloc(sizeof(part24_rgb) * parts_no);
+  float part_size = (float)raw->x / parts_no;
+  img->length = parts_no;
+  for (u32 i = 0; i < parts_no; i++) {
+    bitmap *tmp = copy_bitmap(
+        raw, roundf(part_size * i), 0,
+        roundf(part_size * (i + 1)) - roundf(part_size * i), raw->y);
+    img->parts[i].map = pallete_8rgb(tmp, &img->parts[i].dict);
+    img->parts[i].depth = 0;
+    img->parts[i].x = roundf(part_size * i);
+    img->parts[i].y = 0;
+    img->parts[i].w = roundf(part_size * (i + 1)) - roundf(part_size * i) -1;
+    img->parts[i].h = raw->y;
+    free_bitmap(tmp);
+  }
 }
 
-u32 count_colors(bitmap *b) {
-  u64 table;
-  switch (b->format) {
-  case RGB24:
-    table = 0x100000000;
-    break;
-  case RGBA32:
-    table = 0x1000000;
-    break;
-  case DICT8RGB:
-    table = 256;
-    break;
-  case DICT8RGBA:
-    table = 256;
-    break;
-  }
-  u8 *colors = calloc(1, table / 8);
-  for (u32 i = 0; i < b->x; i++) {
-    for (u32 j = 0; j < b->y; j++) {
+u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
+  u32 colors[256];
+  u32 number = 0;
+  for (u32 i = x; i < x + w; i++) {
+    for (u32 j = y; j < y + h; j++) {
       u32 pixel = get_pixel(i, j, b);
-      u32 index = pixel / 8;
-      u32 bit = pixel % 8;
-      colors[index] = colors[index] | (u8)(1 << bit);
+      u8 unique = 1;
+      for (u32 k = 0; k < number; k++) {
+        if (colors[k] == pixel) {
+          unique = 0;
+          break;
+        }
+      }
+      if (unique == 1) {
+        if (number == 255) {
+          return 256;
+        } else {
+          colors[number] = pixel;
+          number++;
+        }
+      }
     }
   }
-  u32 count = 0;
-  for (u32 i = 0; i < table / 8; i++) {
-    for (u32 j = 0; j < 8; j++) {
-      count += colors[i] >> j & 1;
-    }
-  }
-  return count;
+  return number;
 }
+u32 count_colors(bitmap *b) { return count_colors_rect(b, 0, 0, b->x, b->y); }
