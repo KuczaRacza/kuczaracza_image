@@ -11,7 +11,7 @@ image *encode(bitmap *raw) {
   img->size_x = raw->x;
   img->size_y = raw->y;
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
-  linear_quantization(copy, 15, 0);
+  linear_quantization(copy, 6, 0);
   rectangle_tree(img, copy);
 
   return img;
@@ -21,18 +21,18 @@ bitmap *decode(image *img) {
   bitmap *map =
       create_bitmap(img->size_x, img->size_y, img->size_x, img->format);
   if (img->format == RGB24) {
-
+    u32 esize = format_bpp(img->format);
     for (u32 i = 0; i < img->length; i++) {
-      bitmap *tmp = depallete_8rgb(img->parts[i].map, &img->parts[i].dict);
+      stream str = depallete(img->parts[i].pixels, &img->parts[i].dict, esize);
       part24_rgb *prt = &img->parts[i];
       // not optimalized
-      for (u32 j = 0; j < tmp->x; j++) {
-        for (u32 k = 0; k < tmp->y; k++) {
-          u32 color = get_pixel(j, k, tmp);
+      for (u32 j = 0; j < img->parts[i].w; j++) {
+        for (u32 k = 0; k < img->parts[i].h; k++) {
+          u32 color;
+          memcpy(&color, (u8 *)str.ptr + (i * esize), esize);
           set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
         }
       }
-      free_bitmap(tmp);
     }
   }
 
@@ -49,10 +49,7 @@ stream seralize(image *img) {
               sizeof(u16) + // w part
               sizeof(u16) + // h part
               sizeof(u8) +  // depth
-              sizeof(u32) + // bitamp x
-              sizeof(u32) + // bitamp y
-              sizeof(u32) + // bitmap rowcd
-              sizeof(u8)    // bitamp format
+              sizeof(u32)   // stream size
               ) * img->length;
   u32 dict_size;
   switch (img->format) {
@@ -66,8 +63,7 @@ stream seralize(image *img) {
   }
   str.size += dict_size * img->length;
   for (u32 i = 0; i < img->length; i++) {
-    str.size += img->parts[i].w * img->parts[i].h *
-                format_bpp(img->parts[i].map->format);
+    str.size += img->parts[i].pixels.size;
   }
   str.ptr = malloc(str.size);
   u32 offset = 0;
@@ -82,13 +78,9 @@ stream seralize(image *img) {
     dstoffsetcopy(str.ptr, &img->parts[i].h, &offset, sizeof(u16));
     dstoffsetcopy(str.ptr, &img->parts[i].depth, &offset, sizeof(u8));
     dstoffsetcopy(str.ptr, &img->parts[i].dict, &offset, dict_size);
-    dstoffsetcopy(str.ptr, &img->parts[i].map->x, &offset, sizeof(u32));
-    dstoffsetcopy(str.ptr, &img->parts[i].map->y, &offset, sizeof(u32));
-    dstoffsetcopy(str.ptr, &img->parts[i].map->row, &offset, sizeof(u32));
-    dstoffsetcopy(str.ptr, &img->parts[i].map->format, &offset, sizeof(u8));
-    dstoffsetcopy(str.ptr, img->parts[i].map->ptr, &offset,
-                  img->parts[i].w * img->parts[i].h *
-                      format_bpp(img->parts[i].map->format));
+    dstoffsetcopy(str.ptr, &img->parts[i].pixels.size, &offset, sizeof(u32));
+    dstoffsetcopy(str.ptr, img->parts[i].pixels.ptr, &offset,
+                  img->parts[i].pixels.size);
   }
   return str;
 }
@@ -122,21 +114,16 @@ image *deserialize(stream str) {
     srcoffsetcopy(&img->parts[i].h, str.ptr, &offset, sizeof(u16));
     srcoffsetcopy(&img->parts[i].depth, str.ptr, &offset, sizeof(u8));
     srcoffsetcopy(&img->parts[i].dict, str.ptr, &offset, dict_size);
-    u32 xb;
-    u32 yb;
-    u32 rb;
-    u8 fb;
-    srcoffsetcopy(&xb, str.ptr, &offset, sizeof(u32));
-    srcoffsetcopy(&yb, str.ptr, &offset, sizeof(u32));
-    srcoffsetcopy(&rb, str.ptr, &offset, sizeof(u32));
-    srcoffsetcopy(&fb, str.ptr, &offset, sizeof(u8));
-    img->parts[i].map = create_bitmap(xb, yb, rb, fb);
-    srcoffsetcopy(img->parts[i].map->ptr, str.ptr, &offset,
-                  xb * yb * format_bpp(fb));
+    u32 ssize;
+    srcoffsetcopy(&ssize, str.ptr, &offset, sizeof(u32));
+    img->parts[i].pixels.size = ssize;
+    img->parts[i].pixels.ptr = malloc(ssize);
+    srcoffsetcopy(img->parts[i].pixels.ptr, str.ptr, &offset, ssize);
   }
 
   return img;
 }
+/*
 bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict, rect area) {
   dict->size = 0;
   bitmap *replacement = create_bitmap(area.w, area.h, area.w, DICT8RGB);
@@ -236,6 +223,7 @@ u16 add_color_8rgba(dict8_rgba *d, u32 color) {
   return d->size - 1;
 }
 u32 get_dict8rgba(u8 index, dict8_rgba *d) { return d->colors[index]; }
+*/
 void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
   for (u32 i = 0; i < b->x; i++) {
     for (u32 j = 0; j < b->y; j++) {
@@ -250,6 +238,50 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
     }
   }
 }
+
+stream pallete(stream str, dict8_rgb *d, u32 esize) {
+  stream ret;
+  ret.size = str.size / esize;
+  ret.ptr = malloc(ret.size);
+  for (u32 i = 0; i < ret.size; i++) {
+    u32 pixel;
+    memcpy(&pixel, (u8 *)str.ptr + (i * esize), esize);
+    u32 dcol = add_color(d, pixel);
+    if (dcol == 256) {
+      ret.ptr[i] = 0;
+    } else {
+      ret.ptr[i] = (u8)dcol;
+    }
+  }
+  return ret;
+}
+stream depallete(stream str, dict8_rgb *d, u32 esize) {
+  stream ret;
+  ret.size = str.size * esize;
+  ret.ptr = malloc(ret.size);
+  for (u32 i = 0; i < str.size; i++) {
+    u32 dcol = str.ptr[i];
+    u32 pixel = get_dict(dcol, d);
+    memcpy((u8 *)ret.ptr + (esize * i), &pixel, esize);
+  }
+  return ret;
+}
+u16 add_color(dict8_rgb *d, u32 color) {
+  for (u16 i = 0; i < d->size; i++) {
+    if (d->colors[i] == color) {
+      return i;
+    }
+  }
+  if (d->size == 255) {
+    d->size = 0;
+    return 256;
+  }
+
+  d->colors[d->size] = color;
+  d->size++;
+  return d->size - 1;
+}
+u32 get_dict(u8 index, dict8_rgb *d) { return d->colors[index]; }
 void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   for (u32 i = 0; i < b->x; i++) {
     for (u32 j = 0; j < b->y; j++) {
@@ -286,7 +318,17 @@ void rectangle_tree(image *img, bitmap *raw) {
     img->parts[i].y = trt.y;
     img->parts[i].w = trt.w;
     img->parts[i].h = trt.h;
-    img->parts[i].map = pallete_8rgb(raw, &img->parts[i].dict, trt);
+    bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
+    stream stmp;
+    stmp.size = btmp->row * btmp->y * format_bpp(btmp->format);
+    stmp.ptr = malloc(stmp.size);
+    memcpy(stmp.ptr, btmp->ptr, stmp.size);
+
+    img->parts[i].pixels =
+        pallete(stmp, &img->parts[i].dict, format_bpp(btmp->format));
+
+    free_bitmap(btmp);
+    free(stmp.ptr);
   }
   free(vec.data);
 }

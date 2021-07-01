@@ -26,7 +26,7 @@ struct part24_rgb {
   u16 h;
   dict8_rgb dict;
   u8 depth;
-  bitmap *map;
+  stream pixels;
 };
 typedef struct part24_rgb part24_rgb;
 struct part32_rgba {
@@ -53,15 +53,12 @@ bitmap *decode(image *img);
 stream seralize(image *img);
 image *deserialize(stream str);
 
-bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *d,rect area);
-bitmap *depallete_8rgb(bitmap *bit, dict8_rgb *d);
-u16 add_color_8rgb(dict8_rgb *d, u32 color);
-u32 get_dict8rgb(u8 index, dict8_rgb *d);
+stream pallete(stream str, dict8_rgb *d,u32  esize);
+stream depallete(stream str, dict8_rgb *d, u32  esize);
+u16 add_color(dict8_rgb *d, u32 color);
+u32 get_dict(u8 index, dict8_rgb *d);
 
-bitmap *pallete_8rgba(bitmap *bit, dict8_rgba *d);
-bitmap *depallete_8rgba(bitmap *bit, dict8_rgba *d);
-u16 add_color_8rgba(dict8_rgba *d, u32 color);
-u32 get_dict8rgba(u8 index, dict8_rgba *d);
+
 
 void linear_quantization(bitmap *b, u32 quant, u8 alpha);
 void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
