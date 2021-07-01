@@ -24,15 +24,16 @@ bitmap *decode(image *img) {
     u32 esize = format_bpp(img->format);
     for (u32 i = 0; i < img->length; i++) {
       stream str = depallete(img->parts[i].pixels, &img->parts[i].dict, esize);
-      part24_rgb *prt = &img->parts[i];
       // not optimalized
+	  
       for (u32 j = 0; j < img->parts[i].w; j++) {
         for (u32 k = 0; k < img->parts[i].h; k++) {
-          u32 color;
-          memcpy(&color, (u8 *)str.ptr + (i * esize), esize);
+          u32 color = 0;
+          memcpy(&color, (u8 *)str.ptr + ((k* img->parts[i].w + j ) * esize), esize);
           set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
         }
       }
+	  free(str.ptr);
     }
   }
 
@@ -114,7 +115,7 @@ image *deserialize(stream str) {
     srcoffsetcopy(&img->parts[i].h, str.ptr, &offset, sizeof(u16));
     srcoffsetcopy(&img->parts[i].depth, str.ptr, &offset, sizeof(u8));
     srcoffsetcopy(&img->parts[i].dict, str.ptr, &offset, dict_size);
-    u32 ssize;
+    u32 ssize = 0;
     srcoffsetcopy(&ssize, str.ptr, &offset, sizeof(u32));
     img->parts[i].pixels.size = ssize;
     img->parts[i].pixels.ptr = malloc(ssize);
@@ -123,107 +124,6 @@ image *deserialize(stream str) {
 
   return img;
 }
-/*
-bitmap *pallete_8rgb(bitmap *bit, dict8_rgb *dict, rect area) {
-  dict->size = 0;
-  bitmap *replacement = create_bitmap(area.w, area.h, area.w, DICT8RGB);
-  for (u32 i = area.x; i < area.w + area.x; i++) {
-    for (u32 j = area.y; j < area.h + area.y; j++) {
-      u32 color = get_pixel(i, j, bit);
-      u32 dcol = add_color_8rgb(dict, color);
-      if (dcol == 256) {
-        set_pixel(i - area.x, j - area.y, replacement, 1);
-      } else {
-        set_pixel(i - area.x, j - area.y, replacement, dcol);
-      }
-    }
-  }
-
-  return replacement;
-}
-bitmap *depallete_8rgb(bitmap *bit, dict8_rgb *d) {
-  bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGB24);
-  for (u32 i = 0; i < bit->x; i++) {
-    for (u32 j = 0; j < bit->y; j++) {
-      u32 color = get_pixel(i, j, bit);
-      u32 dcol = get_dict8rgb(color, d);
-
-      set_pixel(i, j, replacment, dcol);
-    }
-  }
-  return replacment;
-}
-u16 add_color_8rgb(dict8_rgb *d, u32 color) {
-
-  u8 *address = (u8 *)d->colors;
-  for (u16 i = 0; i < d->size; i++) {
-    u32 dcol = 0;
-    memcpy(&dcol, address, 3);
-    address = (u8 *)address + 3;
-    if (dcol == color) {
-      return i;
-    }
-  }
-  if (d->size == 255) {
-    return 256;
-  }
-  address = (u8 *)d->colors + (d->size * 3);
-  memcpy(address, &color, 3);
-  d->size++;
-
-  return d->size - 1;
-}
-u32 get_dict8rgb(u8 index, dict8_rgb *d) {
-  u8 *address = (u8 *)d->colors + index * 3;
-  u32 color = 0;
-  memcpy(&color, address, 3);
-  return color;
-}
-bitmap *pallete_8rgba(bitmap *bit, dict8_rgba *d) {
-  d->size = 0;
-  bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGBA32);
-  for (u32 i = 0; i < bit->x; i++) {
-    for (u32 j = 0; j < bit->y; j++) {
-      u32 color = get_pixel(i, j, bit);
-      set_pixel(i, j, replacment, add_color_8rgba(d, color));
-    }
-  }
-  return replacment;
-}
-bitmap *depallete_8rgba(bitmap *bit, dict8_rgba *d) {
-  bitmap *replacment = create_bitmap(bit->x, bit->y, bit->row, RGBA32);
-  for (u32 i = 0; i < bit->x; i++) {
-    for (u32 j = 0; j < bit->y; j++) {
-      u32 color = get_pixel(i, j, bit);
-      u32 dcol = get_dict8rgba(color, d);
-      if (dcol == 256) {
-        // free replacment
-        // return NULL;
-      } else {
-        set_pixel(i, j, replacment, dcol);
-      }
-    }
-  }
-  return replacment;
-}
-u16 add_color_8rgba(dict8_rgba *d, u32 color) {
-
-  for (u16 i = 0; i < d->size; i++) {
-    if (d->colors[i] == color) {
-      return i;
-    }
-  }
-  if (d->size == 255) {
-    d->size = 0;
-    return 256;
-  }
-
-  d->colors[d->size] = color;
-  d->size++;
-  return d->size - 1;
-}
-u32 get_dict8rgba(u8 index, dict8_rgba *d) { return d->colors[index]; }
-*/
 void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
   for (u32 i = 0; i < b->x; i++) {
     for (u32 j = 0; j < b->y; j++) {
@@ -241,6 +141,7 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
 
 stream pallete(stream str, dict8_rgb *d, u32 esize) {
   stream ret;
+  d->size =0;
   ret.size = str.size / esize;
   ret.ptr = malloc(ret.size);
   for (u32 i = 0; i < ret.size; i++) {
@@ -261,19 +162,21 @@ stream depallete(stream str, dict8_rgb *d, u32 esize) {
   ret.ptr = malloc(ret.size);
   for (u32 i = 0; i < str.size; i++) {
     u32 dcol = str.ptr[i];
-    u32 pixel = get_dict(dcol, d);
-    memcpy((u8 *)ret.ptr + (esize * i), &pixel, esize);
+    if (dcol < 255) {
+      u32 pixel = get_dict(dcol, d);
+      memcpy((u8 *)ret.ptr + (esize * i), &pixel, esize);
+    }
   }
   return ret;
 }
 u16 add_color(dict8_rgb *d, u32 color) {
+	
   for (u16 i = 0; i < d->size; i++) {
     if (d->colors[i] == color) {
       return i;
     }
   }
   if (d->size == 255) {
-    d->size = 0;
     return 256;
   }
 
