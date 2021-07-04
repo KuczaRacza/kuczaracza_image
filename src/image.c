@@ -25,15 +25,19 @@ bitmap *decode(image *img) {
     for (u32 i = 0; i < img->length; i++) {
       stream str = depallete(img->parts[i].pixels, &img->parts[i].dict, esize);
       // not optimalized
-	  
+      rect part_rect;
+      part_rect.x = img->parts[i].x;
+      part_rect.y = img->parts[i].y;
+      part_rect.w = img->parts[i].w;
+      part_rect.h = img->parts[i].h;
+      bitmap *btmp = recreate_quads(str, 4, 5, part_rect, img->format);
       for (u32 j = 0; j < img->parts[i].w; j++) {
         for (u32 k = 0; k < img->parts[i].h; k++) {
-          u32 color = 0;
-          memcpy(&color, (u8 *)str.ptr + ((k* img->parts[i].w + j ) * esize), esize);
+          u32 color = get_pixel(j, k, btmp);
           set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
         }
       }
-	  free(str.ptr);
+      free(str.ptr);
     }
   }
 
@@ -141,7 +145,7 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
 
 stream pallete(stream str, dict8_rgb *d, u32 esize) {
   stream ret;
-  d->size =0;
+  d->size = 0;
   ret.size = str.size / esize;
   ret.ptr = malloc(ret.size);
   for (u32 i = 0; i < ret.size; i++) {
@@ -170,7 +174,7 @@ stream depallete(stream str, dict8_rgb *d, u32 esize) {
   return ret;
 }
 u16 add_color(dict8_rgb *d, u32 color) {
-	
+
   for (u16 i = 0; i < d->size; i++) {
     if (d->colors[i] == color) {
       return i;
@@ -214,6 +218,13 @@ void rectangle_tree(image *img, bitmap *raw) {
   u32 length = vec.size / elemnet_size;
   img->length = length;
   img->parts = malloc(sizeof(part24_rgb) * length);
+  u8 max_depth = 0;
+  for (u32 i = 0; i < length; i++) {
+    u8 td = *(u8 *)(vec.data + elemnet_size * i + sizeof(rect));
+    if (td < max_depth) {
+      max_depth = td;
+    }
+  }
   for (u32 i = 0; i < length; i++) {
     rect trt = *(rect *)(vec.data + elemnet_size * i);
     u8 td = *(u8 *)(vec.data + elemnet_size * i + sizeof(rect));
@@ -222,10 +233,7 @@ void rectangle_tree(image *img, bitmap *raw) {
     img->parts[i].w = trt.w;
     img->parts[i].h = trt.h;
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
-    stream stmp;
-    stmp.size = btmp->row * btmp->y * format_bpp(btmp->format);
-    stmp.ptr = malloc(stmp.size);
-    memcpy(stmp.ptr, btmp->ptr, stmp.size);
+    stream stmp = cut_quads(btmp, 4, 5);
 
     img->parts[i].pixels =
         pallete(stmp, &img->parts[i].dict, format_bpp(btmp->format));
@@ -296,4 +304,95 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
     push_vector(rects, &area, sizeof(area));
     push_vector(rects, &depth, sizeof(u8));
   }
+}
+rgba_color color_diffrence(u32 color_b, u32 color_a) {
+  rgba_color *a = (rgba_color *)&color_a;
+  rgba_color *b = (rgba_color *)&color_b;
+  rgba_color res;
+  res.r = (a->r > b->r) ? a->r - b->r : b->r - a->r;
+  res.g = (a->g > b->g) ? a->g - b->g : b->g - a->g;
+  res.b = (a->b > b->b) ? a->b - b->b : b->b - a->b;
+  res.r = (a->a > b->a) ? a->a - b->a : b->a - a->a;
+  return res;
+}
+stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
+  stream ret;
+  u32 esize = format_bpp(b->format);
+  ret.size = b->x * b->y * esize;
+  ret.ptr = malloc(ret.size);
+  u32 offset = 0;
+  for (u32 i = 0; i < b->x / quad_s; i++) {
+    for (u32 j = 0; j < b->y / quad_s; j++) {
+      u32 cr[4];
+      cr[0] = get_pixel(i * quad_s, j * quad_s, b);
+      cr[1] = get_pixel(i * quad_s + quad_s - 1, j * quad_s, b);
+      cr[2] = get_pixel(i * quad_s + quad_s - 1, j * quad_s + quad_s - 1, b);
+      cr[3] = get_pixel(i * quad_s, j * quad_s + quad_s - 1, b);
+      dstoffsetcopy(ret.ptr, &cr[0], &offset, esize);
+      dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
+      dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
+      dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
+      for (u32 k = 0; k < quad_s; k++) {
+        for (u32 l = 0; l < quad_s; l++) {
+
+          if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
+              !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
+            u32 pixel = get_pixel(i * quad_s + k, j * quad_s + l, b);
+            dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
+          }
+        }
+      }
+    }
+  }
+
+  for (u32 i = 0; i < b->x; i++) {
+    for (u32 j = 0; j < b->y; j++) {
+      if (i >= (b->x / quad_s) * quad_s || j >= (b->y / quad_s) * quad_s) {
+        u32 pixel = get_pixel(i, j, b);
+        dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
+      }
+    }
+  }
+  return ret;
+}
+bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
+                       u8 format) {
+  bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
+  u32 esize = format_bpp(format);
+  u32 offset = 0;
+  for (u32 i = 0; i < ret->x / quad_s; i++) {
+    for (u32 j = 0; j < ret->y / quad_s; j++) {
+      u32 cr[4];
+      srcoffsetcopy(&cr[0], str.ptr, &offset, esize);
+      srcoffsetcopy(&cr[1], str.ptr, &offset, esize);
+      srcoffsetcopy(&cr[2], str.ptr, &offset, esize);
+      srcoffsetcopy(&cr[3], str.ptr, &offset, esize);
+      set_pixel(i * quad_s, j * quad_s, ret, cr[0]);
+      set_pixel(i * quad_s + quad_s - 1, j * quad_s, ret, cr[1]);
+      set_pixel(i * quad_s + quad_s - 1, j * quad_s + quad_s - 1, ret, cr[2]);
+      set_pixel(i * quad_s, j * quad_s + quad_s - 1, ret, cr[3]);
+      for (u32 k = 0; k < quad_s; k++) {
+        for (u32 l = 0; l < quad_s; l++) {
+          if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
+              !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
+            u32 pixel = 0;
+            srcoffsetcopy(&pixel, str.ptr, &offset, esize);
+            set_pixel(i * quad_s + k, j * quad_s + l, ret, pixel);
+          }
+        }
+      }
+    }
+  }
+
+  for (u32 i = 0; i < ret->x; i++) {
+    for (u32 j = 0; j < ret->y; j++) {
+      if (i >= (ret->x / quad_s) * quad_s || j >= (ret->y / quad_s) * quad_s) {
+        u32 pixel = 0;
+        srcoffsetcopy(&pixel, str.ptr, &offset, esize);
+        set_pixel(i, j, ret, pixel);
+      }
+    }
+  }
+
+  return ret;
 }

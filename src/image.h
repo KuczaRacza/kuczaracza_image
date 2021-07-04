@@ -47,22 +47,30 @@ struct image {
   part24_rgb *parts;
 };
 typedef struct image image;
+struct rgba_color {
+  u8 r;
+  u8 g;
+  u8 b;
+  u8 a;
+};
+typedef struct rgba_color rgba_color;
 
 image *encode(bitmap *raw);
 bitmap *decode(image *img);
 stream seralize(image *img);
 image *deserialize(stream str);
 
-stream pallete(stream str, dict8_rgb *d,u32  esize);
-stream depallete(stream str, dict8_rgb *d, u32  esize);
+stream pallete(stream str, dict8_rgb *d, u32 esize);
+stream depallete(stream str, dict8_rgb *d, u32 esize);
 u16 add_color(dict8_rgb *d, u32 color);
 u32 get_dict(u8 index, dict8_rgb *d);
-
-
 
 void linear_quantization(bitmap *b, u32 quant, u8 alpha);
 void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
 void rectangle_tree(image *img, bitmap *raw);
 u32 count_colors(bitmap *b);
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
-void create_rect(vector* rects, bitmap *raw, rect area, u8 depth);
+void create_rect(vector *rects, bitmap *raw, rect area, u8 depth);
+rgba_color color_diffrence(u32 color_b, u32 color_a);
+stream cut_quads(bitmap *b, u8 quad_s, u8 threshold);
+bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold,rect size,u8 format);
