@@ -11,7 +11,7 @@ image *encode(bitmap *raw) {
   img->size_x = raw->x;
   img->size_y = raw->y;
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
-  linear_quantization(copy, 6, 0);
+  linear_quantization(copy, 15, 0);
   rectangle_tree(img, copy);
 
   return img;
@@ -30,7 +30,7 @@ bitmap *decode(image *img) {
       part_rect.y = img->parts[i].y;
       part_rect.w = img->parts[i].w;
       part_rect.h = img->parts[i].h;
-      bitmap *btmp = recreate_quads(str, 4, 5, part_rect, img->format);
+      bitmap *btmp = recreate_quads(str, 4, 22, part_rect, img->format);
       for (u32 j = 0; j < img->parts[i].w; j++) {
         for (u32 k = 0; k < img->parts[i].h; k++) {
           u32 color = get_pixel(j, k, btmp);
@@ -233,7 +233,7 @@ void rectangle_tree(image *img, bitmap *raw) {
     img->parts[i].w = trt.w;
     img->parts[i].h = trt.h;
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
-    stream stmp = cut_quads(btmp, 4, 5);
+    stream stmp = cut_quads(btmp, 4, 22);
 
     img->parts[i].pixels =
         pallete(stmp, &img->parts[i].dict, format_bpp(btmp->format));
@@ -332,13 +332,36 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
       dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
       dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
       dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
-      for (u32 k = 0; k < quad_s; k++) {
-        for (u32 l = 0; l < quad_s; l++) {
+      u32 diffrence = 0;
+      for (u32 k = 0; k < 4; k++) {
+        for (u32 l = 0; l < 4; l++) {
+          if (k != l) {
+            rgba_color dif = color_diffrence(cr[k], cr[l]);
+            if (diffrence < dif.r) {
+              diffrence = dif.r;
+            }
+            if (diffrence < dif.g) {
+              diffrence = dif.g;
+            }
+            if (diffrence < dif.b) {
+              diffrence = dif.b;
+            }
+            if (esize == 4)
+              if (diffrence < dif.a) {
+                diffrence = dif.a;
+              }
+          }
+        }
+      }
+      if (diffrence > threshold) {
+        for (u32 k = 0; k < quad_s; k++) {
+          for (u32 l = 0; l < quad_s; l++) {
 
-          if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
-              !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
-            u32 pixel = get_pixel(i * quad_s + k, j * quad_s + l, b);
-            dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
+            if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
+                !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
+              u32 pixel = get_pixel(i * quad_s + k, j * quad_s + l, b);
+              dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
+            }
           }
         }
       }
@@ -371,13 +394,36 @@ bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
       set_pixel(i * quad_s + quad_s - 1, j * quad_s, ret, cr[1]);
       set_pixel(i * quad_s + quad_s - 1, j * quad_s + quad_s - 1, ret, cr[2]);
       set_pixel(i * quad_s, j * quad_s + quad_s - 1, ret, cr[3]);
-      for (u32 k = 0; k < quad_s; k++) {
-        for (u32 l = 0; l < quad_s; l++) {
-          if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
-              !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
-            u32 pixel = 0;
-            srcoffsetcopy(&pixel, str.ptr, &offset, esize);
-            set_pixel(i * quad_s + k, j * quad_s + l, ret, pixel);
+      u32 diffrence = 0;
+      for (u32 k = 0; k < 4; k++) {
+        for (u32 l = 0; l < 4; l++) {
+          if (k != l) {
+            rgba_color dif = color_diffrence(cr[k], cr[l]);
+            if (diffrence < dif.r) {
+              diffrence = dif.r;
+            }
+            if (diffrence < dif.g) {
+              diffrence = dif.g;
+            }
+            if (diffrence < dif.b) {
+              diffrence = dif.b;
+            }
+            if (esize == 4)
+              if (diffrence < dif.a) {
+                diffrence = dif.a;
+              }
+          }
+        }
+      }
+      if (diffrence > threshold) {
+        for (u32 k = 0; k < quad_s; k++) {
+          for (u32 l = 0; l < quad_s; l++) {
+            if (!(k == 0 && l == 0) && !(k == quad_s - 1 && l == quad_s - 1) &&
+                !(k == 0 && l == quad_s - 1) && !(k == quad_s - 1 && l == 0)) {
+              u32 pixel = 0;
+              srcoffsetcopy(&pixel, str.ptr, &offset, esize);
+              set_pixel(i * quad_s + k, j * quad_s + l, ret, pixel);
+            }
           }
         }
       }
