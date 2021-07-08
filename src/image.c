@@ -11,7 +11,7 @@ image *encode(bitmap *raw) {
   img->size_x = raw->x;
   img->size_y = raw->y;
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
-  linear_quantization(copy, 15, 0);
+  linear_quantization(copy, 5, 0);
   rectangle_tree(img, copy);
 
   return img;
@@ -30,14 +30,15 @@ bitmap *decode(image *img) {
       part_rect.y = img->parts[i].y;
       part_rect.w = img->parts[i].w;
       part_rect.h = img->parts[i].h;
-      bitmap *btmp = recreate_quads(str, 4, 22, part_rect, img->format);
+      u32 quad = (img->max_depth - img->parts[i].depth) / (float)img->max_depth * 16.0f;
+      quad = (quad < 4) ? 4 : quad;
+      bitmap *btmp = recreate_quads(str, quad, 20, part_rect, img->format);
       for (u32 j = 0; j < img->parts[i].w; j++) {
         for (u32 k = 0; k < img->parts[i].h; k++) {
           u32 color = get_pixel(j, k, btmp);
           set_pixel(j + img->parts[i].x, k + img->parts[i].y, map, color);
         }
       }
-      free(str.ptr);
     }
   }
 
@@ -48,6 +49,7 @@ stream seralize(image *img) {
   str.size = sizeof(u32) +  // size_x
              sizeof(u32) +  // size_y
              sizeof(u8) +   // format
+             sizeof(u8) +   // max depth
              sizeof(u32) +  // lenght
              (sizeof(u16) + // x part
               sizeof(u16) + // y part
@@ -75,6 +77,7 @@ stream seralize(image *img) {
   dstoffsetcopy(str.ptr, &img->size_x, &offset, sizeof(u32));
   dstoffsetcopy(str.ptr, &img->size_y, &offset, sizeof(u32));
   dstoffsetcopy(str.ptr, &img->format, &offset, sizeof(u8));
+  dstoffsetcopy(str.ptr, &img->max_depth, &offset, sizeof(u8));
   dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
   for (u32 i = 0; i < img->length; i++) {
     dstoffsetcopy(str.ptr, &img->parts[i].x, &offset, sizeof(u16));
@@ -95,6 +98,7 @@ image *deserialize(stream str) {
   srcoffsetcopy(&img->size_x, str.ptr, &offset, sizeof(u32));
   srcoffsetcopy(&img->size_y, str.ptr, &offset, sizeof(u32));
   srcoffsetcopy(&img->format, str.ptr, &offset, sizeof(u8));
+  srcoffsetcopy(&img->max_depth, str.ptr, &offset, sizeof(u8));
   srcoffsetcopy(&img->length, str.ptr, &offset, sizeof(u32));
   u32 dict_size;
   switch (img->format) {
@@ -221,10 +225,14 @@ void rectangle_tree(image *img, bitmap *raw) {
   u8 max_depth = 0;
   for (u32 i = 0; i < length; i++) {
     u8 td = *(u8 *)(vec.data + elemnet_size * i + sizeof(rect));
-    if (td < max_depth) {
+    if (td > max_depth) {
       max_depth = td;
     }
   }
+  if (max_depth == 0) {
+    max_depth = 1;
+  }
+  img->max_depth = max_depth;
   for (u32 i = 0; i < length; i++) {
     rect trt = *(rect *)(vec.data + elemnet_size * i);
     u8 td = *(u8 *)(vec.data + elemnet_size * i + sizeof(rect));
@@ -232,8 +240,12 @@ void rectangle_tree(image *img, bitmap *raw) {
     img->parts[i].y = trt.y;
     img->parts[i].w = trt.w;
     img->parts[i].h = trt.h;
+    img->parts[i].depth = td;
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
-    stream stmp = cut_quads(btmp, 4, 22);
+    stream stmp;
+    u32 quad = (max_depth - td) / (float)max_depth * 16.0f;
+    quad = (quad < 4) ? 4 : quad;
+    stmp = cut_quads(btmp, quad, 20);
 
     img->parts[i].pixels =
         pallete(stmp, &img->parts[i].dict, format_bpp(btmp->format));
@@ -281,7 +293,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
 
       arect.x = area.x;
       arect.y = area.y;
-      arect.w = area.w / 2 - 1;
+      arect.w = area.w / 2 ;
       arect.h = area.h;
       brect.x = area.x + area.w / 2;
       brect.y = area.y;
@@ -292,7 +304,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
       arect.x = area.x;
       arect.y = area.y;
       arect.w = area.w;
-      arect.h = area.h / 2 - 1;
+      arect.h = area.h / 2 ;
       brect.x = area.x;
       brect.y = area.y + area.h / 2;
       brect.w = area.w;
@@ -324,6 +336,9 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
   for (u32 i = 0; i < b->x / quad_s; i++) {
     for (u32 j = 0; j < b->y / quad_s; j++) {
       u32 cr[4];
+      for (u32 k = 0; k < 4; k++) {
+        cr[k] = 0;
+      }
       cr[0] = get_pixel(i * quad_s, j * quad_s, b);
       cr[1] = get_pixel(i * quad_s + quad_s - 1, j * quad_s, b);
       cr[2] = get_pixel(i * quad_s + quad_s - 1, j * quad_s + quad_s - 1, b);
@@ -376,16 +391,23 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
       }
     }
   }
+  ret.size = offset;
+  ret.ptr = realloc(ret.ptr, offset);
   return ret;
 }
 bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
                        u8 format) {
+
   bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
   u32 esize = format_bpp(format);
+  str.ptr = realloc(str.ptr, size.w * size.h * esize);
   u32 offset = 0;
   for (u32 i = 0; i < ret->x / quad_s; i++) {
     for (u32 j = 0; j < ret->y / quad_s; j++) {
       u32 cr[4];
+      for (u32 k = 0; k < 4; k++) {
+        cr[k] = 0;
+      }
       srcoffsetcopy(&cr[0], str.ptr, &offset, esize);
       srcoffsetcopy(&cr[1], str.ptr, &offset, esize);
       srcoffsetcopy(&cr[2], str.ptr, &offset, esize);
@@ -426,6 +448,54 @@ bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
             }
           }
         }
+      } else {
+        rgba_color *corners = (rgba_color *)cr;
+        for (u32 k = 1; k < quad_s - 1; k++) {
+          float dist = (float)k / (quad_s - 1);
+          rgba_color pixel;
+          rgba_color pixelb = *(rgba_color *)&cr[0];
+          rgba_color pixela = *(rgba_color *)&cr[1];
+          pixel.r = roundf(pixela.r * dist + pixelb.r * (1.0f - dist));
+          pixel.g = roundf(pixela.g * dist + pixelb.g * (1.0f - dist));
+          pixel.b = roundf(pixela.b * dist + pixelb.b * (1.0f - dist));
+          if (esize == 4) {
+            pixel.a = roundf(pixela.a * dist + pixelb.a * (1.0f - dist));
+          }
+          set_pixel(quad_s * i + k, quad_s * j, ret, *(u32 *)&pixel);
+        }
+        for (u32 k = 1; k < quad_s - 1; k++) {
+          float dist = (float)k / (quad_s - 1);
+          rgba_color pixel;
+          rgba_color pixelb = *(rgba_color *)&cr[3];
+          rgba_color pixela = *(rgba_color *)&cr[2];
+          pixel.r = roundf(pixela.r * dist + pixelb.r * (1.0f - dist));
+          pixel.g = roundf(pixela.g * dist + pixelb.g * (1.0f - dist));
+          pixel.b = roundf(pixela.b * dist + pixelb.b * (1.0f - dist));
+          if (esize == 4) {
+            pixel.a = roundf(pixela.a * dist + pixelb.a * (1.0f - dist));
+          }
+          set_pixel(quad_s * i + k, quad_s * j + quad_s - 1, ret,
+                    *(u32 *)&pixel);
+        }
+        for (u32 k = 0; k < quad_s; k++) {
+          u32 cola = get_pixel(quad_s * i + k, quad_s * j, ret);
+          u32 colb = get_pixel(quad_s * i + k, quad_s * j + quad_s - 1, ret);
+          rgba_color pixelb = *(rgba_color *)&cola;
+          rgba_color pixela = *(rgba_color *)&colb;
+          for (u32 l = 1; l < quad_s - 1; l++) {
+
+            float dist = (float)l / (quad_s - 1);
+            rgba_color pixel;
+
+            pixel.r = roundf(pixela.r * dist + pixelb.r * (1.0f - dist));
+            pixel.g = roundf(pixela.g * dist + pixelb.g * (1.0f - dist));
+            pixel.b = roundf(pixela.b * dist + pixelb.b * (1.0f - dist));
+            if (esize == 4) {
+              pixel.a = roundf(pixela.a * dist + pixelb.a * (1.0f - dist));
+            }
+            set_pixel(quad_s * i + k, quad_s * j + l, ret, *(u32 *)&pixel);
+          }
+        }
       }
     }
   }
@@ -439,6 +509,6 @@ bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
       }
     }
   }
-
+  free(str.ptr);
   return ret;
 }

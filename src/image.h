@@ -43,6 +43,7 @@ struct image {
   u32 size_x;
   u32 size_y;
   u8 format;
+  u8 max_depth;
   u32 length;
   part24_rgb *parts;
 };
