@@ -16,6 +16,8 @@ int main(int argc, char **argv) {
   stream str = seralize(img);
   write(&str, argv[2]);
   free(str.ptr);
+  free_bitmap(b);
+  free_image(img);
   SDL_FreeSurface(surf);
   return 0;
 }

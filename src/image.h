@@ -1,49 +1,28 @@
 #pragma once
 #include "types.h"
-enum compression {
-  PALLETE = 0x1,
-  QUANTIZATION = 0x2,
-  QUAD_TREE = 0x4,
-  BLOCKS = 0x8
-};
-
-typedef enum compression compression;
-struct dict8_rgba {
-  u8 size;
-  u32 colors[256];
-};
 struct dict8_rgb {
   u8 size;
   u32 colors[256];
 };
-
-typedef struct dict8_rgba dict8_rgba;
 typedef struct dict8_rgb dict8_rgb;
+// part of each image rects and pixels
 struct part24_rgb {
   u16 x;
   u16 y;
   u16 w;
   u16 h;
+  // pallete for each part
   dict8_rgb dict;
   u8 depth;
   stream pixels;
 };
 typedef struct part24_rgb part24_rgb;
-struct part32_rgba {
-  u16 x;
-  u16 y;
-  u16 w;
-  u16 h;
-  dict8_rgba dict;
-  u8 depth;
-  bitmap *map;
-};
-typedef struct part32_rgba part32_rgba;
 struct image {
   u32 size_x;
   u32 size_y;
   u8 format;
   u8 max_depth;
+  // number of part
   u32 length;
   part24_rgb *parts;
 };
@@ -55,23 +34,35 @@ struct rgba_color {
   u8 a;
 };
 typedef struct rgba_color rgba_color;
-
+// encodes whole image from bitmap
 image *encode(bitmap *raw);
+// decode whole image to bitmap
 bitmap *decode(image *img);
+// writes image into array of pixels
 stream seralize(image *img);
+// reads image form array of pixels
 image *deserialize(stream str);
 
-stream pallete(stream str, dict8_rgb *d, u32 esize);
-stream depallete(stream str, dict8_rgb *d, u32 esize);
-u16 add_color(dict8_rgb *d, u32 color);
-u32 get_dict(u8 index, dict8_rgb *d);
+static stream pallete(stream str, dict8_rgb *d, u32 esize);
+static stream depallete(stream str, dict8_rgb *d, u32 esize);
+static u16 add_color(dict8_rgb *d, u32 color);
+static u32 get_dict(u8 index, dict8_rgb *d);
 
-void linear_quantization(bitmap *b, u32 quant, u8 alpha);
-void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
-void rectangle_tree(image *img, bitmap *raw);
-u32 count_colors(bitmap *b);
-u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
-void create_rect(vector *rects, bitmap *raw, rect area, u8 depth);
-rgba_color color_diffrence(u32 color_b, u32 color_a);
-stream cut_quads(bitmap *b, u8 quad_s, u8 threshold);
-bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold,rect size,u8 format);
+// redeuces number of colors
+static void linear_quantization(bitmap *b, u32 quant, u8 alpha);
+static void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
+// encodes image into rectangular treee
+static void rectangle_tree(image *img, bitmap *raw);
+static u32 count_colors(bitmap *b);
+// count colors in some area
+static u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
+// cerates reatangles in react tree
+static void create_rect(vector *rects, bitmap *raw, rect area, u8 depth);
+//count diffrence in colors
+static rgba_color color_diffrence(u32 color_b, u32 color_a);
+//omits unnessary blocks that might be interpolated based on corners
+static stream cut_quads(bitmap *b, u8 quad_s, u8 threshold);
+//interpoltes ommited blocks to fill gaps
+static bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
+                              u8 format);
+static void free_image(image *img);

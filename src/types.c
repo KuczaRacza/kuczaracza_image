@@ -71,7 +71,6 @@ void set_pixel(u32 x, u32 y, bitmap *map, u32 color) {
   };
 }
 bitmap *copy_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h) {
-  u8 bpp = format_bpp(orgin->format);
   bitmap *b = create_bitmap(w, h, w, orgin->format);
   // not optimalized
   for (u32 i = x; i < w + x; i++) {

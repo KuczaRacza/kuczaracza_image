@@ -18,6 +18,7 @@ stream read(char *path) {
   fread(&str.size, 1, sizeof(u64), f);
   if (str.size > 512 * 1024 * 1024) {
     fprintf(stderr, "file too big; may be corrupted\n");
+	 fclose(f);
     return str;
   }
   str.ptr = (u8 *)malloc(str.size);
