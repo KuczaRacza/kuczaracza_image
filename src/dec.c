@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   image *img = deserialize(raw);
   bitmap *b = decode(img);
   SDL_Surface *surf = bitmap_to_sdl(b);
-  IMG_SavePNG(surf, argv[2]);
+  SDL_SaveBMP(surf, argv[2]);
   SDL_FreeSurface(surf);
   free_image(img);
   free(raw.ptr);
