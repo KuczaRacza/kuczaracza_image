@@ -1,5 +1,4 @@
 #pragma once
-#include <bits/stdint-uintn.h>
 #include <stdint.h>
 typedef uint8_t u8;
 typedef uint16_t u16;

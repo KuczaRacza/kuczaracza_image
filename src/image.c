@@ -5,19 +5,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-image *encode(bitmap *raw) {
+image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
+              u32 block_color_sensivity) {
   // alocating struct
   image *img = (image *)malloc(sizeof(image));
   // setting basic informations
   img->format = raw->format;
   img->size_x = raw->x;
   img->size_y = raw->y;
+  img->blok_size = max_block_size;
+  img->color_quant = color_reduction;
+  img->color_sensivity = block_color_sensivity;
   // coping bitmap to avoid overwriting input
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
   // reducing clors
-  linear_quantization(copy, 5, 0);
+  linear_quantization(copy, 8, 0);
   // commpression
-  rectangle_tree(img, copy);
+  rectangle_tree(img, copy, max_block_size, block_color_sensivity);
   free_bitmap(copy);
 
   return img;
@@ -38,11 +42,12 @@ bitmap *decode(image *img) {
     part_rect.w = img->parts[i].w;
     part_rect.h = img->parts[i].h;
     // detrmining quad blokcs size
-    u32 quad =
-        (img->max_depth - img->parts[i].depth) / (float)img->max_depth * 25.0f;
+    u32 quad = (img->max_depth - img->parts[i].depth) / (float)img->max_depth *
+               img->blok_size;
     quad = (quad < 6) ? 6 : quad;
     // color diffrence limit after which quad is no longer commpressed
-    u32 threshold = 25 + img->parts[i].depth / (float)img->max_depth * 15.0f;
+    u32 threshold =
+        25 + img->parts[i].depth / (float)img->max_depth * img->color_sensivity;
     // interoplating quads
     bitmap *btmp = recreate_quads(str, quad, threshold, part_rect, img->format);
     // coping pixels
@@ -64,6 +69,9 @@ stream seralize(image *img) {
              sizeof(u32) +  // size_y
              sizeof(u8) +   // format
              sizeof(u8) +   // max depth
+             sizeof(u16) +  // block size
+             sizeof(u16) +  // quant
+             sizeof(u16) +  // block sensivity
              sizeof(u32) +  // lenght
                             // foreach part of image
              (sizeof(u16) + // x part
@@ -85,6 +93,9 @@ stream seralize(image *img) {
   dstoffsetcopy(str.ptr, &img->size_y, &offset, sizeof(u32));
   dstoffsetcopy(str.ptr, &img->format, &offset, sizeof(u8));
   dstoffsetcopy(str.ptr, &img->max_depth, &offset, sizeof(u8));
+  dstoffsetcopy(str.ptr, &img->blok_size, &offset, sizeof(u16));
+  dstoffsetcopy(str.ptr, &img->color_quant, &offset, sizeof(u16));
+  dstoffsetcopy(str.ptr, &img->color_sensivity, &offset, sizeof(u16));
   dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
   // coping each part
   for (u32 i = 0; i < img->length; i++) {
@@ -113,6 +124,9 @@ image *deserialize(stream str) {
   srcoffsetcopy(&img->size_y, str.ptr, &offset, sizeof(u32));
   srcoffsetcopy(&img->format, str.ptr, &offset, sizeof(u8));
   srcoffsetcopy(&img->max_depth, str.ptr, &offset, sizeof(u8));
+  srcoffsetcopy(&img->blok_size, str.ptr, &offset, sizeof(u16));
+  srcoffsetcopy(&img->color_quant, str.ptr, &offset, sizeof(u16));
+  srcoffsetcopy(&img->color_sensivity, str.ptr, &offset, sizeof(u16));
   srcoffsetcopy(&img->length, str.ptr, &offset, sizeof(u32));
   // size of each pixel
   u32 esize = format_bpp(img->format);
@@ -144,9 +158,11 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
     for (u32 j = 0; j < b->y; j++) {
       u32 color = get_pixel(i, j, b);
       u8 *col = (u8 *)&color;
+      float q = quant;
       // omits alpha if not present in image
       for (u8 k = 0; k < ((alpha & 1) ? 4 : 3); k++) {
-        col[k] = roundf(col[k] / (float)quant) * (float)quant;
+        float cl = roundf((float)col[k] / q) * (float)q;
+        col[k] = (cl > 255) ? 255 : cl;
       }
       set_pixel(i, j, b, color);
     }
@@ -222,7 +238,8 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
     }
   }
 }
-void rectangle_tree(image *img, bitmap *raw) {
+void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
+                    u32 block_color_sensivity) {
   // vector of rects
   vector vec;
   vec.size = 0;
@@ -271,9 +288,9 @@ void rectangle_tree(image *img, bitmap *raw) {
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
     stream stmp;
     // size of each quad in cuttnig qads
-    u32 quad = (max_depth - td) / (float)max_depth * 25.0f;
+    u32 quad = (max_depth - td) / (float)max_depth * max_block_size;
     quad = (quad < 6) ? 6 : quad;
-    u32 threshold = 25 + td / (float)max_depth * 15.0f;
+    u32 threshold = 25 + td / (float)max_depth * block_color_sensivity;
     // pixels with cutted  unnesseary quads
     stmp = cut_quads(btmp, quad, threshold);
     // palletting pixels and witing to image struct
