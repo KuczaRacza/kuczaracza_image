@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 3.2)
 
 project(kczp)
 
-set(CMAKE_C_FLAGS "-Wall")
-set(CMAKE_C_FLAGS "-Wpedantic")
-#set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
-
+set(CMAKE_CXX_FLAGS "-Wall")
+set(CMAKE_CXX_FLAGS "-Wpedantic")
+set(CMAKE_CXX_FLAGS "-fsanitize=address,undefined")
+set(CMAKE_CXX_STANDARD 17)
 file(GLOB image "src/types.c" 
 	"src/iofile.c" "src/image.c")
 

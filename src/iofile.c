@@ -18,7 +18,7 @@ stream read(char *path) {
   fread(&str.size, 1, sizeof(u64), f);
   if (str.size > 512 * 1024 * 1024) {
     fprintf(stderr, "file too big; may be corrupted\n");
-	 fclose(f);
+    fclose(f);
     return str;
   }
   str.ptr = (u8 *)malloc(str.size);
@@ -35,7 +35,7 @@ SDL_Surface *bitmap_to_sdl(bitmap *img) {
     break;
   case 4:
     pixelformat = SDL_PIXELFORMAT_RGBA32;
-	break;
+    break;
   default:
     fprintf(stderr, "format not supported");
     return NULL;
@@ -61,9 +61,12 @@ bitmap *sdl_to_bitmap(SDL_Surface *surf) {
     return NULL;
     break;
   }
+  bitmap *img = create_bitmap(surf->w, surf->h, surf->w, fmt);
+  u8 bpp = format_bpp(img->format);
+  for (u32 i = 0; i < surf->h; i++) {
+    memcpy((u8 *)img->ptr + i * bpp * img->x, surf->pixels + (i * surf->pitch),
+           img->x * bpp);
+  }
 
-  bitmap *img = create_bitmap(surf->w, surf->h,surf->pitch/format_bpp(fmt), fmt);
-  memcpy(img->ptr, surf->pixels, img->y * img->row * format_bpp(img->format));
   return img;
-  // work in progress
 }
