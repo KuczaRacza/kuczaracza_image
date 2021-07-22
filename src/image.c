@@ -34,7 +34,8 @@ bitmap *decode(image *img) {
   u32 esize = format_bpp(img->format);
   for (u32 i = 0; i < img->length; i++) {
     // translating from pallete to real colors
-    stream str = depallete(img->parts[i].pixels, &img->parts[i].dict, esize);
+    stream str = depallete(img->parts[i].pixels,
+                           &img->dicts[img->parts[i].dict_index], esize);
     // area of current part
     rect part_rect;
     part_rect.x = img->parts[i].x;
@@ -65,27 +66,31 @@ bitmap *decode(image *img) {
 stream seralize(image *img) {
   stream str;
   u32 esize = format_bpp(img->format);
-  str.size = sizeof(u32) +  // size_x
-             sizeof(u32) +  // size_y
-             sizeof(u8) +   // format
-             sizeof(u8) +   // max depth
-             sizeof(u16) +  // block size
-             sizeof(u16) +  // quant
-             sizeof(u16) +  // block sensivity
-             sizeof(u32) +  // lenght
-                            // foreach part of image
-             (sizeof(u16) + // x part
-              sizeof(u16) + // y part
-              sizeof(u16) + // w part
-              sizeof(u16) + // h part
-              sizeof(u8) +  // depth
-              sizeof(u32) + // stream size
-              sizeof(u8)    // dict size
-              ) * img->length;
+  str.size = sizeof(u32) +   // size_x
+             sizeof(u32) +   // size_y
+             sizeof(u8) +    // format
+             sizeof(u8) +    // max depth
+             sizeof(u16) +   // block size
+             sizeof(u16) +   // quant
+             sizeof(u16) +   // block sensivity
+             sizeof(u32) +   // lenght
+             sizeof(u32) +   // dict lenght
+                             // foreach part of image
+             (sizeof(u16) +  // x part
+              sizeof(u16) +  // y part
+              sizeof(u16) +  // w part
+              sizeof(u16) +  // h part
+              sizeof(u8) +   // depth
+              sizeof(u32) +  // stream size
+              sizeof(u16)) * // dict index
+                 img->length;
   // calulating sie of pallets and pixels
   for (u32 i = 0; i < img->length; i++) {
     str.size += img->parts[i].pixels.size;
-    str.size += img->parts[i].dict.size * sizeof(esize);
+  }
+  str.size += img->dicts_length * sizeof(u8);
+  for (u32 i = 0; i < img->dicts_length; i++) {
+    str.size += img->dicts[i].size * esize;
   }
   str.ptr = malloc(str.size);
   u32 offset = 0;
@@ -97,6 +102,7 @@ stream seralize(image *img) {
   dstoffsetcopy(str.ptr, &img->color_quant, &offset, sizeof(u16));
   dstoffsetcopy(str.ptr, &img->color_sensivity, &offset, sizeof(u16));
   dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
+  dstoffsetcopy(str.ptr, &img->dicts_length, &offset, sizeof(u32));
   // coping each part
   for (u32 i = 0; i < img->length; i++) {
     dstoffsetcopy(str.ptr, &img->parts[i].x, &offset, sizeof(u16));
@@ -104,15 +110,16 @@ stream seralize(image *img) {
     dstoffsetcopy(str.ptr, &img->parts[i].w, &offset, sizeof(u16));
     dstoffsetcopy(str.ptr, &img->parts[i].h, &offset, sizeof(u16));
     dstoffsetcopy(str.ptr, &img->parts[i].depth, &offset, sizeof(u8));
-    dstoffsetcopy(str.ptr, &img->parts[i].dict.size, &offset, sizeof(u8));
-    // coping dict with  stripping unesseary data
-    for (u32 j = 0; j < img->parts[i].dict.size; j++) {
-      dstoffsetcopy(str.ptr, &img->parts[i].dict.colors[j], &offset, esize);
-    }
-
+    dstoffsetcopy(str.ptr, &img->parts[i].dict_index, &offset, sizeof(u16));
     dstoffsetcopy(str.ptr, &img->parts[i].pixels.size, &offset, sizeof(u32));
     dstoffsetcopy(str.ptr, img->parts[i].pixels.ptr, &offset,
                   img->parts[i].pixels.size);
+  }
+  for (u32 i = 0; i < img->dicts_length; i++) {
+    dstoffsetcopy(str.ptr, &img->dicts[i].size, &offset, sizeof(u8));
+    for (u32 j = 0; j < img->dicts[i].size; j++) {
+      dstoffsetcopy(str.ptr, &img->dicts[i].colors[j], &offset, esize);
+    }
   }
   return str;
 }
@@ -128,9 +135,10 @@ image *deserialize(stream str) {
   srcoffsetcopy(&img->color_quant, str.ptr, &offset, sizeof(u16));
   srcoffsetcopy(&img->color_sensivity, str.ptr, &offset, sizeof(u16));
   srcoffsetcopy(&img->length, str.ptr, &offset, sizeof(u32));
+  srcoffsetcopy(&img->dicts_length, str.ptr, &offset, sizeof(u32));
   // size of each pixel
   u32 esize = format_bpp(img->format);
-  img->parts = malloc(sizeof(part24_rgb) * img->length);
+  img->parts = malloc(sizeof(region) * img->length);
   for (u32 i = 0; i < img->length; i++) {
 
     srcoffsetcopy(&img->parts[i].x, str.ptr, &offset, sizeof(u16));
@@ -138,17 +146,20 @@ image *deserialize(stream str) {
     srcoffsetcopy(&img->parts[i].w, str.ptr, &offset, sizeof(u16));
     srcoffsetcopy(&img->parts[i].h, str.ptr, &offset, sizeof(u16));
     srcoffsetcopy(&img->parts[i].depth, str.ptr, &offset, sizeof(u8));
-    srcoffsetcopy(&img->parts[i].dict.size, str.ptr, &offset, sizeof(u8));
-    // coping pallete and aligning to better performnce
-    for (u32 j = 0; j < img->parts[i].dict.size; j++) {
-      srcoffsetcopy(&img->parts[i].dict.colors[j], str.ptr, &offset, esize);
-    }
+    srcoffsetcopy(&img->parts[i].dict_index, str.ptr, &offset, sizeof(u16));
     // coping pixels
     u32 ssize = 0;
     srcoffsetcopy(&ssize, str.ptr, &offset, sizeof(u32));
     img->parts[i].pixels.size = ssize;
     img->parts[i].pixels.ptr = malloc(ssize);
     srcoffsetcopy(img->parts[i].pixels.ptr, str.ptr, &offset, ssize);
+  }
+  img->dicts = calloc(sizeof(dict8), img->dicts_length);
+  for (u32 i = 0; i < img->dicts_length; i++) {
+    srcoffsetcopy(&img->dicts[i].size, str.ptr, &offset, sizeof(u8));
+    for (u32 j = 0; j < img->dicts[i].size; j++) {
+      srcoffsetcopy(&img->dicts[i].colors[j], str.ptr, &offset, esize);
+    }
   }
 
   return img;
@@ -169,7 +180,7 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 
-stream pallete(stream str, dict8_rgb *d, u32 esize) {
+stream pallete(stream str, dict8 *d, u32 esize) {
   stream ret;
   // reseting pallet size
   d->size = 0;
@@ -192,7 +203,7 @@ stream pallete(stream str, dict8_rgb *d, u32 esize) {
   }
   return ret;
 }
-stream depallete(stream str, dict8_rgb *d, u32 esize) {
+stream depallete(stream str, dict8 *d, u32 esize) {
   stream ret;
   // calulating new size of deplleted pixels
   ret.size = str.size * esize;
@@ -206,7 +217,7 @@ stream depallete(stream str, dict8_rgb *d, u32 esize) {
   }
   return ret;
 }
-u16 add_color(dict8_rgb *d, u32 color) {
+u16 add_color(dict8 *d, u32 color) {
 
   for (u16 i = 0; i < d->size; i++) {
     // cheking if color is already in pallete
@@ -223,7 +234,7 @@ u16 add_color(dict8_rgb *d, u32 color) {
   d->size++;
   return d->size - 1;
 }
-u32 get_dict(u8 index, dict8_rgb *d) { return d->colors[index]; }
+u32 get_dict(u8 index, dict8 *d) { return d->colors[index]; }
 void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   for (u32 i = 0; i < b->x; i++) {
     for (u32 j = 0; j < b->y; j++) {
@@ -258,8 +269,11 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
   // vector size
   u32 length = vec.size / elemnet_size;
   img->length = length;
+  img->dicts_length = length;
   // allocating space needed to write down parts
-  img->parts = malloc(sizeof(part24_rgb) * length);
+  img->parts = malloc(sizeof(region) * length);
+  img->dicts = calloc(sizeof(dict8), length);
+
   u8 max_depth = 0;
   // determing max depth of rectangular tree
   for (u32 i = 0; i < length; i++) {
@@ -274,6 +288,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     max_depth = 1;
   }
   img->max_depth = max_depth;
+  u32 dict_len = 0;
   // encoding each part
   for (u32 i = 0; i < length; i++) {
     // reading rect of rectangles
@@ -285,6 +300,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     img->parts[i].w = trt.w;
     img->parts[i].h = trt.h;
     img->parts[i].depth = td;
+
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
     stream stmp;
     // size of each quad in cuttnig qads
@@ -294,12 +310,27 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     // pixels with cutted  unnesseary quads
     stmp = cut_quads(btmp, quad, threshold);
     // palletting pixels and witing to image struct
+    // merging is still buggy
+    // remeber  to strip unessary data
     img->parts[i].pixels =
-        pallete(stmp, &img->parts[i].dict, format_bpp(btmp->format));
-
+        pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
+    if (dict_len > 0) {
+      if (merge_dicts(&img->dicts[dict_len - 1], &img->dicts[dict_len],
+                      &img->parts[i].pixels) == 0) {
+        img->parts[i].dict_index = dict_len;
+        dict_len++;
+      } else {
+        img->parts[i].dict_index = dict_len - 1;
+      }
+    } else {
+      img->parts[i].dict_index = dict_len;
+      dict_len++;
+    }
     free_bitmap(btmp);
     free(stmp.ptr);
   }
+  img->dicts_length = dict_len;
+  img->dicts = realloc(img->dicts, sizeof(dict8) * dict_len);
   free(vec.data);
 }
 
@@ -588,5 +619,52 @@ void free_image(image *img) {
     free(img->parts[i].pixels.ptr);
   }
   free(img->parts);
+  free(img->dicts);
   free(img);
+}
+u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
+  u8 matches = 0;
+  u8 in[256];
+  u8 out[256];
+  u8 changed[256];
+  for (u32 i = 0; i < 256; i++) {
+    changed[i] = 0;
+  }
+  for (u32 i = 0; i < dst->size; i++) {
+    for (u32 j = 0; j < src->size; j++) {
+
+      if (dst->colors[i] == src->colors[j]) {
+        in[matches] = j;
+        out[matches] = i;
+        changed[j] = 1;
+        matches++;
+      }
+    }
+  }
+  if ((i32)dst->size + (i32)src->size - matches >= 255) {
+    return 0;
+  } else {
+    for (u32 i = 0; i < (u32)src->size; i++) {
+      if (changed[i] == 0) {
+        dst->colors[dst->size] = src->colors[i];
+        in[matches] = i;
+        out[matches] = dst->size;
+        changed[i] = 1;
+        matches++;
+        dst->size++;
+      }
+    }
+  }
+  for (u32 i = 0; i < pixels->size; i++) {
+    if (changed[pixels->ptr[i]] == 1) {
+      for (u32 j = 0; j < matches; j ++) {
+        if (pixels->ptr[i] == in[j]) {
+          pixels->ptr[i] = out[j];
+		  break;
+        }
+      }
+    }
+  }
+
+  return 1;
 }
