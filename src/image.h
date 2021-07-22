@@ -1,5 +1,7 @@
 #pragma once
 #include "types.h"
+#define VERSION 2
+#define MAGIC "KCZI"
 struct dict8 {
   u8 size;
   u32 colors[256];
@@ -18,8 +20,8 @@ struct region {
 };
 typedef struct region region;
 struct image {
-  u32 size_x;
-  u32 size_y;
+  u16 size_x;
+  u16 size_y;
   u8 format;
   u8 max_depth;
   u16 blok_size;
@@ -41,7 +43,7 @@ struct rgba_color {
 typedef struct rgba_color rgba_color;
 // encodes whole image from bitmap
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
-              u32 block_color_sensivity);
+              u32 block_color_sensivity , u32 complexity);
 // decode whole image to bitmap
 bitmap *decode(image *img);
 // writes image into array of pixels
@@ -59,7 +61,7 @@ static void linear_quantization(bitmap *b, u32 quant, u8 alpha);
 static void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
 // encodes image into rectangular treee
 static void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
-                           u32 block_color_sensivity);
+                           u32 block_color_sensivity,u32  complexity);
 static u32 count_colors(bitmap *b);
 // count colors in some area
 static u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);

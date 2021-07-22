@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
   }
   SDL_Surface *surf = IMG_Load(import_path);
   bitmap *b = sdl_to_bitmap(surf);
-  image *img = encode(b, bl, qu, se);
+  image *img = encode(b, bl, qu, se,1);
   stream str = seralize(img);
   write(&str, export_path);
   free(str.ptr);

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
-              u32 block_color_sensivity) {
+              u32 block_color_sensivity, u32 complexity) {
   // alocating struct
   image *img = (image *)malloc(sizeof(image));
   // setting basic informations
@@ -21,7 +21,7 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
   // reducing clors
   linear_quantization(copy, 8, 0);
   // commpression
-  rectangle_tree(img, copy, max_block_size, block_color_sensivity);
+  rectangle_tree(img, copy, max_block_size, block_color_sensivity, complexity);
   free_bitmap(copy);
 
   return img;
@@ -45,7 +45,7 @@ bitmap *decode(image *img) {
     // detrmining quad blokcs size
     u32 quad = (img->max_depth - img->parts[i].depth) / (float)img->max_depth *
                img->blok_size;
-    quad = (quad < 6) ? 6 : quad;
+    quad = (quad < 4) ? 4 : quad;
     // color diffrence limit after which quad is no longer commpressed
     u32 threshold =
         25 + img->parts[i].depth / (float)img->max_depth * img->color_sensivity;
@@ -66,8 +66,8 @@ bitmap *decode(image *img) {
 stream seralize(image *img) {
   stream str;
   u32 esize = format_bpp(img->format);
-  str.size = sizeof(u32) +   // size_x
-             sizeof(u32) +   // size_y
+  str.size = sizeof(u16) +   // size_x
+             sizeof(u16) +   // size_y
              sizeof(u8) +    // format
              sizeof(u8) +    // max depth
              sizeof(u16) +   // block size
@@ -94,8 +94,8 @@ stream seralize(image *img) {
   }
   str.ptr = malloc(str.size);
   u32 offset = 0;
-  dstoffsetcopy(str.ptr, &img->size_x, &offset, sizeof(u32));
-  dstoffsetcopy(str.ptr, &img->size_y, &offset, sizeof(u32));
+  dstoffsetcopy(str.ptr, &img->size_x, &offset, sizeof(u16));
+  dstoffsetcopy(str.ptr, &img->size_y, &offset, sizeof(u16));
   dstoffsetcopy(str.ptr, &img->format, &offset, sizeof(u8));
   dstoffsetcopy(str.ptr, &img->max_depth, &offset, sizeof(u8));
   dstoffsetcopy(str.ptr, &img->blok_size, &offset, sizeof(u16));
@@ -127,8 +127,8 @@ image *deserialize(stream str) {
   image *img = (image *)malloc(sizeof(image));
   u32 offset = 0;
   // coping basic info about image
-  srcoffsetcopy(&img->size_x, str.ptr, &offset, sizeof(u32));
-  srcoffsetcopy(&img->size_y, str.ptr, &offset, sizeof(u32));
+  srcoffsetcopy(&img->size_x, str.ptr, &offset, sizeof(u16));
+  srcoffsetcopy(&img->size_y, str.ptr, &offset, sizeof(u16));
   srcoffsetcopy(&img->format, str.ptr, &offset, sizeof(u8));
   srcoffsetcopy(&img->max_depth, str.ptr, &offset, sizeof(u8));
   srcoffsetcopy(&img->blok_size, str.ptr, &offset, sizeof(u16));
@@ -250,7 +250,7 @@ void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
   }
 }
 void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
-                    u32 block_color_sensivity) {
+                    u32 block_color_sensivity, u32 complexity) {
   // vector of rects
   vector vec;
   vec.size = 0;
@@ -305,23 +305,32 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     stream stmp;
     // size of each quad in cuttnig qads
     u32 quad = (max_depth - td) / (float)max_depth * max_block_size;
-    quad = (quad < 6) ? 6 : quad;
+    quad = (quad < 4) ? 4 : quad;
     u32 threshold = 25 + td / (float)max_depth * block_color_sensivity;
     // pixels with cutted  unnesseary quads
     stmp = cut_quads(btmp, quad, threshold);
     // palletting pixels and witing to image struct
     // merging is still buggy
     // remeber  to strip unessary data
+
     img->parts[i].pixels =
         pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
-    if (dict_len > 0) {
-      if (merge_dicts(&img->dicts[dict_len - 1], &img->dicts[dict_len],
-                      &img->parts[i].pixels) == 0) {
+    if (dict_len > 0 && complexity > 0) {
+      u8 merged = 0;
+      for (i32 j = dict_len; j > 0 && ((complexity > 1) ? 1 : dict_len - j > 3);
+           j--) {
+        if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
+                        &img->parts[i].pixels) == 1) {
+          img->parts[i].dict_index = dict_len - j;
+          merged = 1;
+          break;
+        }
+      }
+      if (merged == 0) {
         img->parts[i].dict_index = dict_len;
         dict_len++;
-      } else {
-        img->parts[i].dict_index = dict_len - 1;
       }
+
     } else {
       img->parts[i].dict_index = dict_len;
       dict_len++;
@@ -657,10 +666,10 @@ u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
   }
   for (u32 i = 0; i < pixels->size; i++) {
     if (changed[pixels->ptr[i]] == 1) {
-      for (u32 j = 0; j < matches; j ++) {
+      for (u32 j = 0; j < matches; j++) {
         if (pixels->ptr[i] == in[j]) {
           pixels->ptr[i] = out[j];
-		  break;
+          break;
         }
       }
     }
