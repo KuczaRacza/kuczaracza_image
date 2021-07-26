@@ -17,6 +17,7 @@ struct region {
   u16 dict_index;
   u8 depth;
   stream pixels;
+  stream blokcs;
 };
 typedef struct region region;
 struct image {
