@@ -50,7 +50,8 @@ bitmap *decode(image *img) {
     u32 threshold =
         25 + img->parts[i].depth / (float)img->max_depth * img->color_sensivity;
     // interoplating quads
-    bitmap *btmp = recreate_quads(str, quad, threshold, part_rect, img->format);
+    bitmap *btmp = recreate_quads(str, quad, threshold, part_rect, img->format,
+                                  img->parts[i].blokcs);
     // coping pixels
     for (u32 j = 0; j < img->parts[i].h; j++) {
       for (u32 k = 0; k < img->parts[i].w; k++) {
@@ -317,15 +318,19 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     u32 quad = (max_depth - td) / (float)max_depth * max_block_size;
     quad = (quad < 4) ? 4 : quad;
     u32 threshold = 25 + td / (float)max_depth * block_color_sensivity;
-    // pixels with cutted  unnesseary quads
-    stmp = cut_quads(btmp, quad, threshold);
-    // palletting pixels and witing to image struct
-    u32 blsize = (trt.w / quad) * (trt.h / quad) / 4;
-    if (blsize % 8 != 0) {
+    // alocates array where algorithms foreach blocks are written
+    u32 blsize = (trt.w / quad) * (trt.h / quad);
+    if (blsize % 4 != 0) {
+      blsize /= 4;
       blsize++;
+    } else {
+      blsize /= 4;
     }
     img->parts[i].blokcs.size = blsize;
-    img->parts[i].blokcs.ptr = malloc(blsize);
+    img->parts[i].blokcs.ptr = calloc(1, blsize);
+    // pixels with cutted  unnesseary quads
+    stmp = cut_quads(btmp, quad, threshold, img->parts[i].blokcs);
+    // palletting pixels and witing to image struct
 
     img->parts[i].pixels =
         pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
@@ -434,7 +439,7 @@ rgba_color color_diffrence(u32 color_b, u32 color_a) {
   res.a = (a->a > b->a) ? a->a - b->a : b->a - a->a;
   return res;
 }
-stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
+stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
   // pixels are transalted form bitamp into array where some blocks are skipped
   stream ret;
   u32 esize = format_bpp(b->format);
@@ -449,6 +454,8 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
       for (u32 k = 0; k < 4; k++) {
         cr[k] = 0;
       }
+      // algorithm  used in this block
+      u8 algo;
       // gets colors of corners
       cr[0] = get_pixel(j * quad_s, i * quad_s, b);
       cr[1] = get_pixel(j * quad_s + quad_s - 1, i * quad_s, b);
@@ -493,7 +500,12 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
             }
           }
         }
+        algo = 0;
+      } else {
+        algo = 1;
       }
+      u32 pos = i * (b->x / quad_s) + j;
+      blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
     }
   }
   // writes part of rectangle thath is on edges and cannot be encoded to quads
@@ -511,12 +523,14 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold) {
   return ret;
 }
 bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
-                       u8 format) {
+                       u8 format, stream blokcs) {
   // translate form array to bitmap  and interpolate missing quds
   bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
   // size of pixel
   u32 esize = format_bpp(format);
+  // realocating output stream to avoid memory safety issues if file is corupted
   str.ptr = realloc(str.ptr, size.w * size.h * esize);
+  // index of  written last byte in stream
   u32 offset = 0;
   for (u32 i = 0; i < ret->y / quad_s; i++) {
     for (u32 j = 0; j < ret->x / quad_s; j++) {
@@ -535,28 +549,16 @@ bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
       set_pixel(j * quad_s, i * quad_s + quad_s - 1, ret, cr[3]);
       u32 diffrence = 0;
       // determining if diffrence is lesser or greater tahn thershold
+      // algorimthm used in block
 
-      for (u32 k = 0; k < 4; k++) {
-        for (u32 l = 0; l < 4; l++) {
-          if (k != l) {
-            rgba_color dif = color_diffrence(cr[k], cr[l]);
-            if (diffrence < dif.r) {
-              diffrence = dif.r;
-            }
-            if (diffrence < dif.g) {
-              diffrence = dif.g;
-            }
-            if (diffrence < dif.b) {
-              diffrence = dif.b;
-            }
-            if (esize == 4)
-              if (diffrence < dif.a) {
-                diffrence = dif.a;
-              }
-          }
-        }
-      }
-      if (diffrence > threshold) {
+      u16 pos = i * (ret->x / quad_s) + j;
+      u32 bitshift = (pos % 4 * 2);
+      u8 algo = (blokcs.ptr[pos / 4] & (0b00000011 << bitshift)) >> bitshift;
+
+     
+      
+      if (algo == 0) {
+
         for (u32 k = 0; k < quad_s; k++) {
           for (u32 l = 0; l < quad_s; l++) {
             // block is  wasn't skipped and  other pixels are  copied
@@ -568,7 +570,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
             }
           }
         }
-      } else {
+      } else if (algo == 1) {
         // block was skipped and   pixels are interpolated
         rgba_color *corners = (rgba_color *)cr;
         for (u32 k = 1; k < quad_s - 1; k++) {
@@ -643,7 +645,7 @@ void free_image(image *img) {
   }
   free(img->parts);
   free(img->dicts);
-  
+
   free(img);
 }
 u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {

@@ -71,9 +71,9 @@ static void create_rect(vector *rects, bitmap *raw, rect area, u8 depth);
 // count diffrence in colors
 static rgba_color color_diffrence(u32 color_b, u32 color_a);
 // omits unnessary blocks that might be interpolated based on corners
-static stream cut_quads(bitmap *b, u8 quad_s, u8 threshold);
+static stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks);
 // interpoltes ommited blocks to fill gaps
 static bitmap *recreate_quads(stream str, u8 quad_s, u8 threshold, rect size,
-                              u8 format);
+                              u8 format,stream blocks);
 void free_image(image *img);
 static u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels);
