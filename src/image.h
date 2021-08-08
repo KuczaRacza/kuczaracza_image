@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#define VERSION 2
+#define VERSION 3
 #define MAGIC "KCZI"
 struct dict8 {
   u8 size;

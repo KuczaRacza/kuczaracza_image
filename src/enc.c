@@ -8,8 +8,8 @@
 int main(int argc, char **argv) {
   char *import_path = NULL;
   char *export_path = NULL;
-	u32  qu = 6;
-	u32  bl = 24;
+	u32  qu = 4;
+	u32  bl = 16;
 	u32  se = 28;
 
   for (uint16_t i = 1; i < argc; i++) {
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
   }
   SDL_Surface *surf = IMG_Load(import_path);
   bitmap *b = sdl_to_bitmap(surf);
-  image *img = encode(b, bl, qu, se,1);
+  image *img = encode(b, bl, qu, se,2);
   stream str = seralize(img);
   write(&str, export_path);
   free(str.ptr);
