@@ -515,8 +515,9 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
       for (u32 k = 0; k < qy; k++) {
         for (u32 l = 0; l < qx; l++) {
           u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
+
           for (u32 m = 0; m < esize; m++) {
-            u8 * value = (u8 *)(&pixel) + m;
+            u8 *value = (u8 *)(&pixel) + m;
             if (*value > max_channel[m]) {
               max_channel[m] = *value;
             }
@@ -526,21 +527,18 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
           }
         }
       }
-      u32 min_channel_val = 0xFFFFFFFF;
-      u32 max_channel_val = 0;
+      u32 biggest_diffrence = 0;
       for (u32 m = 0; m < esize; m++) {
-        if (min_channel[m] < min_channel_val) {
-          min_channel_val = min_channel[m];
-        }
-        if (max_channel[m] > max_channel_val) {
-          max_channel_val = max_channel[m];
-        }
+		  u32 this_diffrence =max_channel[m] - min_channel[m];
+		  if(this_diffrence>biggest_diffrence){
+			  biggest_diffrence = this_diffrence;
+		  }
       }
 
       // caluclates biggest diffrence in color per channel
-      i32 diffrence = max_channel_val - min_channel_val;
+      
       // if  diffrence is bigger that means that block cannot be skipped
-      if (diffrence >= threshold) {
+      if (biggest_diffrence >= threshold) {
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
             u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
@@ -551,7 +549,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
       } else {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
-        if (1) {
+        if (0) {
           cr[0] = get_pixel(j * quad_s, i * quad_s, b);
           cr[1] = get_pixel(j * quad_s + qx - 1, i * quad_s, b);
           cr[2] = get_pixel(j * quad_s + qx - 1, i * quad_s + qy - 1, b);
@@ -642,7 +640,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
       // determining if diffrence is lesser or greater tahn thershold
       // algorimthm used in block
 
-      u16 pos = i * x_blocks_size+ j;
+      u16 pos = i * x_blocks_size + j;
       u32 bitshift = (pos % 4 * 2);
       u8 algo = (blokcs.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
 
