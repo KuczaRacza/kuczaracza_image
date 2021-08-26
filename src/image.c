@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zstd.h>
-#define SHOW_BLOCKS 0
+#define SHOW_BLOCKS 1
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -515,20 +515,20 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
       for (u32 k = 0; k < qy; k++) {
         for (u32 l = 0; l < qx; l++) {
           u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
-          for (u32 m = 0; m < ((b->format == RGBA32) ? 4 : 3); m++) {
-            u8 value = *(u8 *)&pixel + m;
-            if (value > max_channel[m]) {
-              max_channel[m] = value;
+          for (u32 m = 0; m < esize; m++) {
+            u8 * value = (u8 *)(&pixel) + m;
+            if (*value > max_channel[m]) {
+              max_channel[m] = *value;
             }
-            if (value < min_channel[m]) {
-              min_channel[m] = value;
+            if (*value < min_channel[m]) {
+              min_channel[m] = *value;
             }
           }
         }
       }
       u32 min_channel_val = 0xFFFFFFFF;
       u32 max_channel_val = 0;
-      for (u32 m = 0; m < ((b->format == RGBA32) ? 4 : 3); m++) {
+      for (u32 m = 0; m < esize; m++) {
         if (min_channel[m] < min_channel_val) {
           min_channel_val = min_channel[m];
         }
