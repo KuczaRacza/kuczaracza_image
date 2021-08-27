@@ -15,19 +15,14 @@ bitmap *create_bitmap(u32 size_x, u32 size_y, u32 row, u8 fmt) {
 u8 format_bpp(u8 fmt) {
   u8 bpp;
   switch (fmt) {
+  case DICTRGBA:
   case RGBA32:
     bpp = 4;
     break;
+  case DICTRGB:
   case RGB24:
+  case YUV444:
     bpp = 3;
-    break;
-  case DICT16RGB:
-  case DICT16RGBA:
-    bpp = 2;
-    break;
-  case DICT8RGB:
-  case DICT8RGBA:
-    bpp = 1;
     break;
   }
   return bpp;
@@ -99,5 +94,5 @@ void push_vector(vector *vec, void *data, u32 size) {
   vec->size += size;
 }
 u8 *get_element_vector(vector *vec, u32 index, u32 size) {
-  return (u8 *)vec->data  + (size * index);
+  return (u8 *)vec->data + (size * index);
 }

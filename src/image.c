@@ -6,7 +6,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zstd.h>
+
+#define CLIP(X) ((X) > 255 ? 255 : (X) < 0 ? 0 : X)
+
+// YUV -> RGB
+#define C(Y) ((Y)-16)
+#define D(U) ((U)-128)
+#define E(V) ((V)-128)
+
+#define YUV2R(Y, U, V) CLIP((298 * C(Y) + 409 * E(V) + 128) >> 8)
+#define YUV2G(Y, U, V) CLIP((298 * C(Y) - 100 * D(U) - 208 * E(V) + 128) >> 8)
+#define YUV2B(Y, U, V) CLIP((298 * C(Y) + 516 * D(U) + 128) >> 8)
+// RGB -> YUV
+#define RGB2Y(R, G, B) CLIP(((66 * (R) + 129 * (G) + 25 * (B) + 128) >> 8) + 16)
+#define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
+#define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
+
 #define SHOW_BLOCKS 1
+#define SMALL_IMAGE_LIMIT 1000
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -20,10 +37,36 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
   img->color_sensivity = block_color_sensivity;
   // coping bitmap to avoid overwriting input
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
+  if (copy->x > SMALL_IMAGE_LIMIT || copy->y > SMALL_IMAGE_LIMIT) {
+    copy->format = YUV444;
+    bitmap *yuv_bitmap = rgb_to_yuv(copy);
+    free_bitmap(copy);
+    img->parts = malloc(sizeof(region));
+    img->length = 1;
+    img->parts[0].x = 0;
+    img->parts[0].y = 0;
+    img->parts[0].w = yuv_bitmap->x;
+    img->parts[0].h = yuv_bitmap->y;
+    img->parts[0].pixels.size =
+        yuv_bitmap->x * yuv_bitmap->y * 3;
+    img->parts[0].pixels.ptr = malloc(img->parts[0].pixels.size);
+    memcpy( img->parts[0].pixels.ptr,yuv_bitmap->ptr, img->parts[0].pixels.size);
+	img->dicts_length =0;
+	img->parts[0].blokcs.size =0;
+	img->format =YUV444;
+	return img;
+  } else {
+    if (copy->format == RGBA32) {
+      img->format = DICTRGBA;
+    } else {
+      img->format = DICTRGB;
+    }
+  }
   // reducing clors
   if (color_reduction > 1) {
     linear_quantization(copy, color_reduction, 0);
   }
+
   // commpression
   rectangle_tree(img, copy, max_block_size, block_color_sensivity, complexity);
   free_bitmap(copy);
@@ -32,14 +75,32 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 }
 bitmap *decode(image *img) {
   // creating output bitmap
+  u8 return_format = RGB24;
+  if(img->format == RGBA32 || img->format == DICTRGBA){
+	  return_format = RGBA32;
+  }
   bitmap *map =
-      create_bitmap(img->size_x, img->size_y, img->size_x, img->format);
+      create_bitmap(img->size_x, img->size_y, img->size_x, RGBA32);
 
   u32 esize = format_bpp(img->format);
+  if(img->format == YUV444){
+	  bitmap * yuv_bitmap = create_bitmap(map->x, map->y, map->x, YUV444);
+	  memcpy(yuv_bitmap->ptr, img->parts[0].pixels.ptr ,yuv_bitmap->x * yuv_bitmap->y * 3);
+	  map = yuv_to_rgb(yuv_bitmap);
+	  free_bitmap(yuv_bitmap);
+	  return map;
+  }
   for (u32 i = 0; i < img->length; i++) {
     // translating from pallete to real colors
-    stream str = depallete(img->parts[i].pixels,
-                           &img->dicts[img->parts[i].dict_index], esize);
+    stream str;
+    if (img->format == DICTRGB || img->format == DICTRGBA) {
+      str = depallete(img->parts[i].pixels,
+                      &img->dicts[img->parts[i].dict_index], esize);
+    } else {
+      str.ptr = malloc(img->parts[i].pixels.size);
+      str.size = img->parts[i].pixels.size;
+      memcpy(str.ptr, img->parts[i].pixels.ptr, str.size);
+    }
     // area of current part
     rect part_rect;
     part_rect.x = img->parts[i].x;
@@ -354,43 +415,51 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     // pixels with cutted  unnesseary quads
     stmp = cut_quads(btmp, quad, threshold, img->parts[i].blokcs);
     // palletting pixels and witing to image struct
-
-    img->parts[i].pixels =
-        pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
-    if (dict_len > 0 && complexity > 0) {
-      u8 merged = 0;
-      u32 max_dict_tries;
-      if (complexity == 2) {
-        max_dict_tries = dict_len - (dict_len / 2);
-      } else if (complexity == 1) {
-        max_dict_tries = dict_len - 5;
-      } else {
-        max_dict_tries = 0;
-      }
-      for (i32 j = dict_len; j > max_dict_tries; j--) {
-        if (img->dicts[dict_len - j].size + img->dicts[dict_len].size < 300) {
-          if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
-                          &img->parts[i].pixels) == 1) {
-            img->parts[i].dict_index = dict_len - j;
-            merged = 1;
-            break;
+    if (img->format == DICTRGB || img->format == DICTRGBA) {
+      img->parts[i].pixels =
+          pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
+      if (dict_len > 0 && complexity > 0) {
+        u8 merged = 0;
+        u32 max_dict_tries;
+        if (complexity == 2) {
+          max_dict_tries = dict_len - (dict_len / 2);
+        } else if (complexity == 1) {
+          max_dict_tries = dict_len - 5;
+        } else {
+          max_dict_tries = 0;
+        }
+        for (i32 j = dict_len; j > max_dict_tries; j--) {
+          if (img->dicts[dict_len - j].size + img->dicts[dict_len].size < 300) {
+            if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
+                            &img->parts[i].pixels) == 1) {
+              img->parts[i].dict_index = dict_len - j;
+              merged = 1;
+              break;
+            }
           }
         }
-      }
-      if (merged == 0) {
+        if (merged == 0) {
+          img->parts[i].dict_index = dict_len;
+          dict_len++;
+        }
+
+      } else {
         img->parts[i].dict_index = dict_len;
         dict_len++;
       }
-
+      free(stmp.ptr);
     } else {
-      img->parts[i].dict_index = dict_len;
-      dict_len++;
+      img->parts[i].pixels = stmp;
     }
     free_bitmap(btmp);
-    free(stmp.ptr);
   }
-  img->dicts_length = dict_len;
-  img->dicts = realloc(img->dicts, sizeof(dict8) * dict_len);
+  if (img->format == DICTRGB || img->format == DICTRGBA) {
+    img->dicts_length = dict_len;
+    img->dicts = realloc(img->dicts, sizeof(dict8) * dict_len);
+  } else {
+    img->dicts_length = 0;
+    img->dicts = NULL;
+  }
   free(vec.data);
 }
 
@@ -462,16 +531,6 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
     push_vector(rects, &depth, sizeof(u8));
   }
 }
-rgba_color color_diffrence(u32 color_b, u32 color_a) {
-  rgba_color *a = (rgba_color *)&color_a;
-  rgba_color *b = (rgba_color *)&color_b;
-  rgba_color res;
-  res.r = (a->r > b->r) ? a->r - b->r : b->r - a->r;
-  res.g = (a->g > b->g) ? a->g - b->g : b->g - a->g;
-  res.b = (a->b > b->b) ? a->b - b->b : b->b - a->b;
-  res.a = (a->a > b->a) ? a->a - b->a : b->a - a->a;
-  return res;
-}
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
   // pixels are transalted form bitamp into array where some blocks are skipped
   stream ret;
@@ -529,14 +588,14 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
       }
       u32 biggest_diffrence = 0;
       for (u32 m = 0; m < esize; m++) {
-		  u32 this_diffrence =max_channel[m] - min_channel[m];
-		  if(this_diffrence>biggest_diffrence){
-			  biggest_diffrence = this_diffrence;
-		  }
+        u32 this_diffrence = max_channel[m] - min_channel[m];
+        if (this_diffrence > biggest_diffrence) {
+          biggest_diffrence = this_diffrence;
+        }
       }
 
       // caluclates biggest diffrence in color per channel
-      
+
       // if  diffrence is bigger that means that block cannot be skipped
       if (biggest_diffrence >= threshold) {
         for (u32 k = 0; k < qy; k++) {
@@ -811,4 +870,38 @@ u32 average_color(rect area, bitmap *b) {
     *(((u8 *)&res_avg) + k) = roundf(avg[k] / (float)(area.w * area.h));
   }
   return res_avg;
+}
+bitmap *rgb_to_yuv(bitmap *b) {
+  bitmap *ret = create_bitmap(b->x, b->y, b->x, YUV444);
+  for (u32 i = 0; i < b->y; i++) {
+    for (u32 j = 0; j < b->x; j++) {
+      u32 yuv = 0;
+      u32 rgb = get_pixel(j, i, b);
+      u8 *yuv_channel = (u8 *)&yuv;
+      u8 *rgb_channel = (u8 *)&rgb;
+      yuv_channel[0] = RGB2Y(rgb_channel[0], rgb_channel[1], rgb_channel[2]);
+      yuv_channel[1] = RGB2U(rgb_channel[0], rgb_channel[1], rgb_channel[2]);
+      yuv_channel[2] = RGB2V(rgb_channel[0], rgb_channel[1], rgb_channel[2]);
+
+      set_pixel(j, i, ret, yuv);
+    }
+  }
+  return ret;
+}
+bitmap *yuv_to_rgb(bitmap *b) {
+  bitmap *ret = create_bitmap(b->x, b->y, b->x, RGB24);
+  for (u32 i = 0; i < b->y; i++) {
+    for (u32 j = 0; j < b->x; j++) {
+      u32 rgb = 0;
+      u32 yuv = get_pixel(j, i, b);
+      u8 *yuv_channel = (u8 *)&yuv;
+      u8 *rgb_channel = (u8 *)&rgb;
+
+      rgb_channel[0] = YUV2R(yuv_channel[0], yuv_channel[1], yuv_channel[2]);
+      rgb_channel[1] = YUV2G(yuv_channel[0], yuv_channel[1], yuv_channel[2]);
+      rgb_channel[2] = YUV2B(yuv_channel[0], yuv_channel[1], yuv_channel[2]);
+      set_pixel(j, i, ret, rgb);
+    }
+  }
+  return ret;
 }

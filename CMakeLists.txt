@@ -4,7 +4,7 @@ project(kczp)
 
 set(CMAKE_C_FLAGS "-Wall")
 set(CMAKE_C_FLAGS "-Wpedantic")
-#set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
+set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
 
 file(GLOB image "src/types.c" 
 	"src/iofile.c" "src/image.c")

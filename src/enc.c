@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
   write(&str, export_path);
   free(str.ptr);
   free_bitmap(b);
-  free_image(img);
+  //free_image(img);
   SDL_FreeSurface(surf);
   return 0;
 }
