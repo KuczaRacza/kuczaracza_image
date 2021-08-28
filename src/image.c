@@ -22,8 +22,8 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-#define SHOW_BLOCKS 1
-#define SMALL_IMAGE_LIMIT 1000
+#define SHOW_BLOCKS 0
+#define SMALL_IMAGE_LIMIT 100
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -37,24 +37,13 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
   img->color_sensivity = block_color_sensivity;
   // coping bitmap to avoid overwriting input
   bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
-  if (copy->x > SMALL_IMAGE_LIMIT || copy->y > SMALL_IMAGE_LIMIT) {
+  if (copy->x > SMALL_IMAGE_LIMIT ||
+      copy->y > SMALL_IMAGE_LIMIT && copy->format != RGBA32) {
     copy->format = YUV444;
     bitmap *yuv_bitmap = rgb_to_yuv(copy);
     free_bitmap(copy);
-    img->parts = malloc(sizeof(region));
-    img->length = 1;
-    img->parts[0].x = 0;
-    img->parts[0].y = 0;
-    img->parts[0].w = yuv_bitmap->x;
-    img->parts[0].h = yuv_bitmap->y;
-    img->parts[0].pixels.size =
-        yuv_bitmap->x * yuv_bitmap->y * 3;
-    img->parts[0].pixels.ptr = malloc(img->parts[0].pixels.size);
-    memcpy( img->parts[0].pixels.ptr,yuv_bitmap->ptr, img->parts[0].pixels.size);
-	img->dicts_length =0;
-	img->parts[0].blokcs.size =0;
-	img->format =YUV444;
-	return img;
+    copy = yuv_bitmap;
+    img->format = YUV444;
   } else {
     if (copy->format == RGBA32) {
       img->format = DICTRGBA;
@@ -76,20 +65,13 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 bitmap *decode(image *img) {
   // creating output bitmap
   u8 return_format = RGB24;
-  if(img->format == RGBA32 || img->format == DICTRGBA){
-	  return_format = RGBA32;
+  if (img->format == RGBA32 || img->format == DICTRGBA) {
+    return_format = RGBA32;
   }
-  bitmap *map =
-      create_bitmap(img->size_x, img->size_y, img->size_x, RGBA32);
+  bitmap *map = create_bitmap(img->size_x, img->size_y, img->size_x, RGBA32);
 
   u32 esize = format_bpp(img->format);
-  if(img->format == YUV444){
-	  bitmap * yuv_bitmap = create_bitmap(map->x, map->y, map->x, YUV444);
-	  memcpy(yuv_bitmap->ptr, img->parts[0].pixels.ptr ,yuv_bitmap->x * yuv_bitmap->y * 3);
-	  map = yuv_to_rgb(yuv_bitmap);
-	  free_bitmap(yuv_bitmap);
-	  return map;
-  }
+
   for (u32 i = 0; i < img->length; i++) {
     // translating from pallete to real colors
     stream str;
@@ -125,6 +107,11 @@ bitmap *decode(image *img) {
       }
     }
     free_bitmap(btmp);
+  }
+  if (img->format == YUV444) {
+    bitmap *rgb_map = yuv_to_rgb(map);
+    free_bitmap(map);
+    map = rgb_map;
   }
 
   return map;
@@ -491,6 +478,50 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
   }
   return number;
 }
+
+stream edge_detection_yuv(bitmap *b) {
+  // small images might have a problem
+  // integer overflow
+  // yuv sould be used only in large images
+  const u32 distance = 2;
+  stream ret;
+  ret.ptr = calloc(1, b->x * b->y);
+  ret.size = b->x * b->y;
+
+  for (u32 i = distance - 1; i < b->y / distance - 1; i++) {
+    for (u32 j = distance - 1; j < b->x / distance - 1; j++) {
+      u32 this_pixel = get_pixel(j * distance, i * distance, b);
+      u8 pixel_y = *(u8 *)&this_pixel;
+      u32 avrg = 0;
+      u32 background_pixels[4];
+      // left upper
+      background_pixels[0] = get_pixel(j * distance - distance + 1,
+                                       i * distance - distance + 1, b);
+      // right upper
+      background_pixels[1] = get_pixel(j * distance + distance - 1,
+                                       i * distance + distance - 1, b);
+      // left down
+      background_pixels[2] = get_pixel(j * distance - distance + 1,
+                                       i * distance + distance - 1, b);
+      // right down
+      background_pixels[3] = get_pixel(j * distance + distance - 1,
+                                       i * distance + distance - 1, b);
+      u32 diffrences = 0;
+      for (u32 k = 0; k < 4; k++) {
+        u8 y_background = *(u8 *)&background_pixels[k];
+        diffrences += abs(y_background - pixel_y);
+      }
+      diffrences = diffrences * diffrences / 255 /4;
+
+      for (i32 k = (i32)distance * -1 + 1; k < (i32)distance; k++) {
+        for (i32 l = (i32)distance * -1 + 1; l < (i32)distance; l++) {
+          ret.ptr[(i * distance + k) * b->x + (j * distance + l)] = diffrences;
+        }
+      }
+    }
+  }
+  return ret;
+}
 u32 count_colors(bitmap *b) { return count_colors_rect(b, 0, 0, b->x, b->y); }
 void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
   // counting colors
@@ -608,7 +639,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
       } else {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
-        if (0) {
+        if (quad_s <= 8) {
           cr[0] = get_pixel(j * quad_s, i * quad_s, b);
           cr[1] = get_pixel(j * quad_s + qx - 1, i * quad_s, b);
           cr[2] = get_pixel(j * quad_s + qx - 1, i * quad_s + qy - 1, b);

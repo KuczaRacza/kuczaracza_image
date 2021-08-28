@@ -80,3 +80,4 @@ u32 average_color(rect area, bitmap *b);
 u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels);
 bitmap *rgb_to_yuv(bitmap *b);
 bitmap *yuv_to_rgb(bitmap *b);
+stream edge_detection_yuv(bitmap *b);
