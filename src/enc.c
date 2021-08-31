@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-q") == 0) {
       qu = atoi(argv[i + 1]);
 
-      if (qu > 255 || qu < 1) {
+      if (qu > 255 || qu < 0) {
         printf("inncorect value -q %i \n", qu);
         return 0;
       }
@@ -39,8 +39,8 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-b") == 0) {
 
       bl = atoi(argv[i + 1]);
-      if (bl > 255 || bl < 1) {
-        printf("inncorect value -c %i \n", bl);
+      if (bl > 500 || bl < 1) {
+        printf("inncorect value -b %i \n", bl);
         return 0;
       }
       i++;

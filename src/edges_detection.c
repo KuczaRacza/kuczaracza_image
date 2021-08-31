@@ -10,15 +10,16 @@ int main(int argc, char **argv) {
 
   bitmap *yuv_b = rgb_to_yuv(b);
   free_bitmap(b);
-  stream str = edge_detection_yuv(yuv_b);
+  rect reg;
+  reg.x = 0;
+  reg.y = 0;
+  reg.w = yuv_b->x;
+  reg.h = yuv_b->y;
   bitmap *edges = create_bitmap(yuv_b->x, yuv_b->y, yuv_b->x, RGB24);
   for (u32 i = 0; i < edges->y; i++) {
     for (u32 j = 0; j < edges->x; j++) {
-      u32 color = str.ptr[i * edges->x + j] * 16;
-      if (color > 255) {
-        color = 255;
-      }
-
+      u32 color = edge_detection_yuv(yuv_b, j, i);
+      color *= 100;
       set_pixel(j, i, edges, color);
     }
   }

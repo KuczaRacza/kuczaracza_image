@@ -1,5 +1,6 @@
 #include "image.h"
 #include "types.h"
+#include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_pixels.h>
 #include <math.h>
 #include <stdio.h>
@@ -23,7 +24,7 @@
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
 #define SHOW_BLOCKS 0
-#define SMALL_IMAGE_LIMIT 100
+#define SMALL_IMAGE_LIMIT 1000
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -90,11 +91,8 @@ bitmap *decode(image *img) {
     part_rect.w = img->parts[i].w;
     part_rect.h = img->parts[i].h;
     // detrmining quad blokcs size
-    u32 quad =
-        powf((img->max_depth - img->parts[i].depth) / (float)img->max_depth,
-             3.0f) *
-
-        img->blok_size;
+    u32 quad = (1 - img->parts[i].depth / (float)img->max_depth) *
+               img->blok_size;
     quad = (quad < 6) ? 6 : quad;
     // interoplating quads
     bitmap *btmp =
@@ -182,9 +180,10 @@ stream seralize(image *img) {
   stream compressed_str;
   compressed_str.size = str.size;
   compressed_str.ptr = malloc(compressed_str.size);
-  compressed_str.size = ZSTD_compress(compressed_str.ptr, compressed_str.size,
-                                      str.ptr, str.size, 22);
-  free(str.ptr);
+  compressed_str.size = str.size;/*ZSTD_compress(compressed_str.ptr, compressed_str.size,
+                                      str.ptr, str.size, 0);*/
+  //free(str.ptr);
+  compressed_str.ptr = str.ptr;
   compressed_str.ptr =
       realloc(compressed_str.ptr, compressed_str.size + sizeof(u64));
   memcpy(compressed_str.ptr + compressed_str.size, &str.size, sizeof(u64));
@@ -195,10 +194,9 @@ image *deserialize(stream compressed_str) {
   stream str;
   memcpy(&str.size, compressed_str.ptr + compressed_str.size - sizeof(u64),
          sizeof(u64));
-  ;
   str.ptr = malloc(str.size);
-  str.size = ZSTD_decompress(str.ptr, str.size, compressed_str.ptr,
-                             compressed_str.size - sizeof(u64));
+  str.size = compressed_str.size;/*ZSTD_decompress(str.ptr, str.size, compressed_str.ptr,
+                             compressed_str.size - sizeof(u64));*/
   str.ptr = realloc(str.ptr, str.size);
   image *img = (image *)malloc(sizeof(image));
   u32 offset = 0;
@@ -316,20 +314,7 @@ u16 add_color(dict8 *d, u32 color) {
   return d->size - 1;
 }
 u32 get_dict(u8 index, dict8 *d) { return d->colors[index]; }
-void cubic_quantization(bitmap *b, u32 quant, u8 alpha) {
-  for (u32 i = 0; i < b->y; i++) {
-    for (u32 j = 0; j < b->x; j++) {
-      u32 color = get_pixel(j, i, b);
-      u8 *col = (u8 *)&color;
-      float average = 0.0f;
-      for (u8 k = 0; k < ((alpha & 1) ? 4 : 3); k++) {
-        float dynamic_quant = (float)quant + (col[k] * 0.05f);
-        col[k] = round(col[k] / dynamic_quant) * floor(dynamic_quant);
-      }
-      set_pixel(j, i, b, color);
-    }
-  }
-}
+
 void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
                     u32 block_color_sensivity, u32 complexity) {
   // vector of rects
@@ -344,7 +329,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
   start_area.w = raw->x;
   start_area.h = raw->y;
   // recurensive function that write to vec rect of every part
-  create_rect(&vec, raw, start_area, 0);
+  create_rect(&vec, raw, start_area, 0, img->format);
   // size of elemnet in vec
   u32 elemnet_size = sizeof(rect) + sizeof(u8);
   // vector size
@@ -385,7 +370,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
     stream stmp;
     // size of each quad in cuttnig qads
-    u32 quad = powf((max_depth - td) / (float)max_depth, 3.0f) * max_block_size;
+    u32 quad = (1 - td / (float)max_depth) * max_block_size;
     quad = (quad < 6) ? 6 : quad;
     u32 threshold = block_color_sensivity +
                     (1.0f - td / (float)max_depth) * block_color_sensivity;
@@ -479,55 +464,75 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
   return number;
 }
 
-stream edge_detection_yuv(bitmap *b) {
-  // small images might have a problem
-  // integer overflow
-  // yuv sould be used only in large images
+u64 edge_detection_yuv(bitmap *b, u32 x, u32 y) {
   const u32 distance = 2;
-  stream ret;
-  ret.ptr = calloc(1, b->x * b->y);
-  ret.size = b->x * b->y;
-
-  for (u32 i = distance - 1; i < b->y / distance - 1; i++) {
-    for (u32 j = distance - 1; j < b->x / distance - 1; j++) {
-      u32 this_pixel = get_pixel(j * distance, i * distance, b);
-      u8 pixel_y = *(u8 *)&this_pixel;
-      u32 avrg = 0;
-      u32 background_pixels[4];
-      // left upper
-      background_pixels[0] = get_pixel(j * distance - distance + 1,
-                                       i * distance - distance + 1, b);
-      // right upper
-      background_pixels[1] = get_pixel(j * distance + distance - 1,
-                                       i * distance + distance - 1, b);
-      // left down
-      background_pixels[2] = get_pixel(j * distance - distance + 1,
-                                       i * distance + distance - 1, b);
-      // right down
-      background_pixels[3] = get_pixel(j * distance + distance - 1,
-                                       i * distance + distance - 1, b);
-      u32 diffrences = 0;
-      for (u32 k = 0; k < 4; k++) {
-        u8 y_background = *(u8 *)&background_pixels[k];
-        diffrences += abs(y_background - pixel_y);
+  u32 this_pixel = get_pixel(x, y, b);
+  u8 pixel_y = *(u8 *)&this_pixel;
+  u32 avrg = 0;
+  u32 background_pixels[4];
+  u8 avalible[4];
+  memset(avalible, 0x0, sizeof(u8) * 4);
+  // left upper
+  if (x >= distance && y >= distance) {
+    avalible[0] = 1;
+    background_pixels[0] = get_pixel(x - distance, y - distance, b);
+  }
+  // right upper
+  if (x + distance < b->x && y >= distance) {
+    background_pixels[1] = get_pixel(x + distance, y - distance, b);
+    avalible[1] = 1;
+  }
+  // left down
+  if (x >= distance && y + distance < b->y) {
+    background_pixels[2] = get_pixel(x - distance, y + distance, b);
+    avalible[2] = 1;
+  }
+  // right down
+  if (x + distance < b->x && y + distance < b->y) {
+    background_pixels[3] = get_pixel(x + distance, y + distance, b);
+    avalible[3] = 1;
+  }
+  u32 diffrences = 0;
+  u32 avalible_n = 0;
+  for (u32 k = 0; k < 4; k++) {
+    if (avalible[k]) {
+      u8 y_background = *(u8 *)&background_pixels[k];
+      diffrences += abs(y_background - pixel_y);
+      avalible_n++;
+    }
+  }
+  diffrences = diffrences / avalible_n;
+  return diffrences;
+}
+u32 count_colors(bitmap *b) { return count_colors_rect(b, 0, 0, b->x, b->y); }
+void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format) {
+  // counting colors
+  u8 divide = 0;
+  if (area.w > 16 || area.h > 16) {
+    if (format == DICTRGBA || format == DICTRGB) {
+      u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
+      if (cols > 127) {
+        divide = 1;
       }
-      diffrences = diffrences * diffrences / 255 /4;
+    } else {
+      u32 edges_sum = 0;
+      u32 upper_limit = 550;
+      u32 lower_limit = 10;
 
-      for (i32 k = (i32)distance * -1 + 1; k < (i32)distance; k++) {
-        for (i32 l = (i32)distance * -1 + 1; l < (i32)distance; l++) {
-          ret.ptr[(i * distance + k) * b->x + (j * distance + l)] = diffrences;
+      for (u32 i = area.y; i < area.y + area.h; i++) {
+        for (u32 j = area.x; j < area.x + area.w; j++) {
+          edges_sum += edge_detection_yuv(raw, j, i);
         }
+      }
+      edges_sum *= 60;
+      edges_sum /= (area.h * area.w);
+      if (edges_sum > lower_limit && edges_sum < upper_limit) {
+        divide = 1;
       }
     }
   }
-  return ret;
-}
-u32 count_colors(bitmap *b) { return count_colors_rect(b, 0, 0, b->x, b->y); }
-void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
-  // counting colors
-  u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
   // if limit is reached
-  if (cols > 127) {
+  if (divide) {
     // cereating two rects
     rect arect;
     rect brect;
@@ -554,8 +559,8 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth) {
       brect.h = area.h - area.h / 2;
     }
     // for splitted area checks if another splis are nessesary
-    create_rect(rects, raw, arect, depth + 1);
-    create_rect(rects, raw, brect, depth + 1);
+    create_rect(rects, raw, arect, depth + 1, format);
+    create_rect(rects, raw, brect, depth + 1, format);
   } else {
     // if color limit is not exceed writes down area to vector
     push_vector(rects, &area, sizeof(area));
@@ -597,45 +602,69 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
 
       // algorithm  used in this block
       u8 algo;
-      u64 diffrence_sum = 0;
-      u32 min_channel[4];
-      u32 max_channel[4];
-      memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
-      memset(max_channel, 0x0, sizeof(u32) * 4);
-      for (u32 k = 0; k < qy; k++) {
-        for (u32 l = 0; l < qx; l++) {
-          u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
 
-          for (u32 m = 0; m < esize; m++) {
-            u8 *value = (u8 *)(&pixel) + m;
-            if (*value > max_channel[m]) {
-              max_channel[m] = *value;
-            }
-            if (*value < min_channel[m]) {
-              min_channel[m] = *value;
+      if (b->format == YUV444) {
+        u32 diffrence_sum = 0;
+        for (u32 k = 0; k < qy; k++) {
+          for (u32 l = 0; l < qx; l++) {
+            diffrence_sum +=
+                powf(edge_detection_yuv(b, l + (j * quad_s), k + (i * quad_s)),
+                     2.5f);
+          }
+        }
+        diffrence_sum /= (b->x * b->y);
+        if (diffrence_sum > threshold) {
+          algo = 1;
+        } else {
+          algo = 0;
+        }
+
+      } else {
+        u64 diffrence_sum = 0;
+        u32 min_channel[4];
+        u32 max_channel[4];
+        memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
+        memset(max_channel, 0x0, sizeof(u32) * 4);
+        for (u32 k = 0; k < qy; k++) {
+          for (u32 l = 0; l < qx; l++) {
+            u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
+
+            for (u32 m = 0; m < esize; m++) {
+              u8 *value = (u8 *)(&pixel) + m;
+              if (*value > max_channel[m]) {
+                max_channel[m] = *value;
+              }
+              if (*value < min_channel[m]) {
+                min_channel[m] = *value;
+              }
             }
           }
         }
-      }
-      u32 biggest_diffrence = 0;
-      for (u32 m = 0; m < esize; m++) {
-        u32 this_diffrence = max_channel[m] - min_channel[m];
-        if (this_diffrence > biggest_diffrence) {
-          biggest_diffrence = this_diffrence;
+        u32 biggest_diffrence = 0;
+        for (u32 m = 0; m < esize; m++) {
+          u32 this_diffrence = max_channel[m] - min_channel[m];
+          if (this_diffrence > biggest_diffrence) {
+            biggest_diffrence = this_diffrence;
+          }
+        }
+        if (biggest_diffrence >= threshold) {
+          algo = 1;
+        } else {
+          algo = 0;
         }
       }
 
       // caluclates biggest diffrence in color per channel
 
       // if  diffrence is bigger that means that block cannot be skipped
-      if (biggest_diffrence >= threshold) {
+      if (algo == 1) {
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
             u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
             dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
           }
         }
-        algo = 1;
+
       } else {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
@@ -679,7 +708,6 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks) {
         dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
         dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
         dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
-        algo = 0;
       }
       u32 pos = i * (x_blocks_size) + j;
       blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));

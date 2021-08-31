@@ -59,7 +59,6 @@ u32 get_dict(u8 index, dict8 *d);
 
 // redeuces number of colors
 void linear_quantization(bitmap *b, u32 quant, u8 alpha);
-void cubic_quantization(bitmap *b, u32 quant, u8 alpha);
 // encodes image into rectangular treee
 void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
                     u32 block_color_sensivity, u32 complexity);
@@ -67,7 +66,7 @@ u32 count_colors(bitmap *b);
 // count colors in some area
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
 // cerates reatangles in react tree
-void create_rect(vector *rects, bitmap *raw, rect area, u8 depth);
+void create_rect(vector *rects, bitmap *raw, rect area, u8 depth,u8 format);
 
 // omits unnessary blocks that might be interpolated based on corners
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks);
@@ -80,4 +79,4 @@ u32 average_color(rect area, bitmap *b);
 u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels);
 bitmap *rgb_to_yuv(bitmap *b);
 bitmap *yuv_to_rgb(bitmap *b);
-stream edge_detection_yuv(bitmap *b);
+u64 edge_detection_yuv(bitmap *b, u32 x,u32 y);
