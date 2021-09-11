@@ -33,8 +33,11 @@ struct image {
   u32 dicts_length;
   region *parts;
   dict8 *dicts;
+  stream  edges_map;
+  u32 avg_edges;
 };
 typedef struct image image;
+
 struct rgba_color {
   u8 r;
   u8 g;
@@ -42,6 +45,19 @@ struct rgba_color {
   u8 a;
 };
 typedef struct rgba_color rgba_color;
+struct yuva_color {
+  u8 y;
+  u8 u;
+  u8 v;
+  u8 a;
+};
+typedef struct yuva_color yuva_color;
+union piexl_data{
+  u32 pixel;
+  rgba_color rgba;
+  yuva_color yuva;
+};
+
 // encodes whole image from bitmap
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity);
@@ -66,10 +82,10 @@ u32 count_colors(bitmap *b);
 // count colors in some area
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
 // cerates reatangles in react tree
-void create_rect(vector *rects, bitmap *raw, rect area, u8 depth,u8 format);
+void create_rect(vector *rects, bitmap *raw, rect area, u8 depth,u8 format,stream edges_map,u32 avg_edge);
 
 // omits unnessary blocks that might be interpolated based on corners
-stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks);
+stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks,image * img,rect area);
 // interpoltes ommited blocks to fill gaps
 bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
                        stream blocks);
@@ -80,3 +96,4 @@ u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels);
 bitmap *rgb_to_yuv(bitmap *b);
 bitmap *yuv_to_rgb(bitmap *b);
 u64 edge_detection_yuv(bitmap *b, u32 x,u32 y);
+void edeges_map(image *img,bitmap * yuv);
