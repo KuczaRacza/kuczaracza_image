@@ -98,6 +98,8 @@ bitmap *decode(image *img) {
     u32 quad =
         (1 - img->parts[i].depth / (float)img->max_depth) * img->blok_size;
     quad = (quad < 4) ? 4 : quad;
+	quad/=2;
+	quad*=2;
     // interoplating quads
     bitmap *btmp =
         recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs);
@@ -390,6 +392,8 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     // size of each quad in cuttnig qads
     u32 quad = (1 - td / (float)max_depth) * max_block_size;
     quad = (quad < 4) ? 4 : quad;
+	quad/=2;
+	quad*=2;
     u32 threshold = block_color_sensivity +
                     (1.0f - td / (float)max_depth) * block_color_sensivity;
     // alocates array where algorithms foreach blocks are written
@@ -715,15 +719,13 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 
       // if  diffrence is bigger that means that block cannot be skipped
       if (algo == 1) {
-
-        for (u32 k = 0; k < qy; k++) {
-          for (u32 l = 0; l < qx; l++) {
-            u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
-            dstoffsetcopy(ret.ptr, &pixel, &offset, esize);
-          }
-        }
-
-      } else if (algo == 0) {
+        rect quad_rect;
+        quad_rect.x = quad_s * j;
+        quad_rect.y = quad_s * i;
+        quad_rect.w = qx;
+        quad_rect.h = qy;
+        subsampling_yuv(b, quad_rect, ret, &offset);
+      } else {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
         if (quad_s <= 8) {
@@ -850,15 +852,14 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 
       if (algo == 1) {
 
-        for (u32 k = 0; k < qy; k++) {
-          for (u32 l = 0; l < qx; l++) {
-            // block is  wasn't skipped and  other pixels are  copied
+        // block is  wasn't skipped and  other pixels are  copied
+        rect quad_rect;
+        quad_rect.x = quad_s * j;
+        quad_rect.y = quad_s * i;
+        quad_rect.w = qx;
+        quad_rect.h = qy;
+        desubsampling_yuv(ret, quad_rect, str, &offset);
 
-            u32 pixel = 0;
-            srcoffsetcopy(&pixel, str.ptr, &offset, esize);
-            set_pixel(j * quad_s + l, i * quad_s + k, ret, pixel);
-          }
-        }
       } else if (algo == 0) {
 
         srcoffsetcopy(&cr[0], str.ptr, &offset, esize);
@@ -1074,7 +1075,7 @@ bitmap *yuv_to_rgb(bitmap *b) {
 void edeges_map(image *img, bitmap *yuv) {
   stream edges;
   u64 all_edges = 0;
-  edges.size = yuv->x * yuv->x;
+  edges.size = yuv->x * yuv->y;
   edges.ptr = malloc(edges.size);
   for (u32 i = 0; i < yuv->y; i++) {
     for (u32 j = 0; j < yuv->x; j++) {
@@ -1087,29 +1088,67 @@ void edeges_map(image *img, bitmap *yuv) {
   img->avg_edges = all_edges / (yuv->x * yuv->y);
 }
 void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset) {
-  for (u32 i = area.y; i < area.h + area.y; i += 2) {
-    for (u32 j = area.x; j < area.w + area.x; j += 2) {
+  for (u32 i = area.y; i < area.h + area.y - 1; i += 2) {
+    for (u32 j = area.x; j < area.w + area.x - 1; j += 2) {
+
       u32 u_sample = 0;
       u32 v_sample = 0;
       u16 samples_count = 0;
       for (u32 k = 0; k < 2; k++) {
         for (u32 l = 0; l < 2; l++) {
-          if (i + k < b->x && j + l < b->y) {
-            union piexl_data px;
-            px.pixel = get_pixel(i, j, b);
-            dstoffsetcopy(out.ptr, &px.yuva.y, offset, sizeof(u8));
-            u_sample += px.yuva.u;
-            v_sample += px.yuva.v;
-            samples_count++;
-          }
+
+          union piexl_data px;
+          px.pixel = get_pixel(j, i, b);
+          dstoffsetcopy(out.ptr, &px.yuva.y, offset, sizeof(u8));
+          u_sample += px.yuva.u;
+          v_sample += px.yuva.v;
+          samples_count++;
         }
       }
-      u_sample /= samples_count;
-      v_sample /= samples_count;
+
+      u_sample /= 4;
+      v_sample /= 4;
       u8 u_val = u_sample;
       u8 v_val = v_sample;
       dstoffsetcopy(out.ptr, &u_sample, offset, sizeof(u8));
       dstoffsetcopy(out.ptr, &v_sample, offset, sizeof(u8));
+    }
+  }
+  for (u32 i = area.y; i < area.h + area.y; i++) {
+    for (u32 j = area.x; j < area.w + area.x; j++) {
+      if (i > area.h + area.y - 2 || j > area.w + area.x - 2) {
+        union piexl_data px;
+        px.pixel = get_pixel(j, i, b);
+        dstoffsetcopy(out.ptr, &px.pixel, offset, format_bpp(b->format));
+      }
+    }
+  }
+}
+void desubsampling_yuv(bitmap *b, rect area, stream str, u32 *offset) {
+  for (u32 i = area.y; i < area.h + area.y - 1; i += 2) {
+    for (u32 j = area.x; j < area.w + area.x - 1; j += 2) {
+      union piexl_data px;
+
+      u8 y_val[4];
+      srcoffsetcopy(y_val, str.ptr, offset, sizeof(u8) * 4);
+      srcoffsetcopy(&px.yuva.u, str.ptr, offset, sizeof(u8));
+      srcoffsetcopy(&px.yuva.v, str.ptr, offset, sizeof(u8));
+
+      for (u32 k = 0; k < 2; k++) {
+        for (u32 l = 0; l < 2; l++) {
+          px.yuva.y = y_val[k * 2 + l];
+          set_pixel(j + l, i + k, b, px.pixel);
+        }
+      }
+    }
+  }
+  for (u32 i = area.y; i < area.h + area.y; i++) {
+    for (u32 j = area.x; j < area.w + area.x; j++) {
+      if (i > area.h + area.y - 2 || j > area.w + area.x - 2) {
+        union piexl_data px;
+        srcoffsetcopy(&px, str.ptr, offset, format_bpp(b->format));
+        set_pixel(j, i, b, px.pixel);
+      }
     }
   }
 }
