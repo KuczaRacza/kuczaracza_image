@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "-s") == 0) {
       se = atoi(argv[i + 1]);
 
-      if (se > 255|| se < 0) {
+      if (se > 5000|| se < 0) {
         printf("inncorect value -s %i \n", se);
         return 0;
       }

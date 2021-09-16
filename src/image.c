@@ -23,9 +23,10 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-#define SHOW_BLOCKS 0
-#define SMALL_IMAGE_LIMIT 1024
+#define SHOW_BLOCKS 1
+#define SMALL_IMAGE_LIMIT 1000
 #define INFOLOGS 1
+#define NOPREDICTION 0
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -409,15 +410,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
           pallete(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
       if (dict_len > 0 && complexity > 0) {
         u8 merged = 0;
-        u32 max_dict_tries;
-        if (complexity == 2) {
-          max_dict_tries = dict_len - (dict_len / 2);
-        } else if (complexity == 1) {
-          max_dict_tries = dict_len - 5;
-        } else {
-          max_dict_tries = 0;
-        }
-        for (i32 j = dict_len; j > max_dict_tries; j--) {
+        for (i32 j = dict_len; j > 0; j--) {
           if (img->dicts[dict_len - j].size + img->dicts[dict_len].size < 300) {
             if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
                             &img->parts[i].pixels) == 1) {
@@ -526,37 +519,36 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
                  stream edges, u32 avg_edges) {
   // counting colors
   u8 divide = 0;
-  if (area.w > 64 || area.h > 64) {
-    if (format == DICTRGBA || format == DICTRGB) {
-      u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
-      if (cols > 127) {
-        divide = 1;
-      }
-    } else {
-      u64 edges_sum = 0;
+  if (format == DICTRGBA || format == DICTRGB) {
+    u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
+    if (cols > 127) {
+      divide = 1;
+    }
+  } else if (area.w > 64 || area.h > 64) {
 
-      u32 lower_limit = 70 + depth * 12 + depth * depth * 4 +
-                        depth * depth * depth * depth * depth * 2;
+    u64 edges_sum = 0;
 
-      for (u32 i = area.y; i < area.y + area.h; i++) {
-        for (u32 j = area.x; j < area.x + area.w; j++) {
-          u32 local_edge = edges.ptr[i * raw->x + j];
+    u32 lower_limit = 70 + depth * 12 + depth * depth * 4 +
+                      depth * depth * depth * depth * depth * 2;
 
-          if (local_edge > avg_edges) {
+    for (u32 i = area.y; i < area.y + area.h; i++) {
+      for (u32 j = area.x; j < area.x + area.w; j++) {
+        u32 local_edge = edges.ptr[i * raw->x + j];
 
-            local_edge -= avg_edges;
-          } else {
-            local_edge = 0;
-          }
-          // TODO change to int
-          edges_sum += local_edge * local_edge;
+        if (local_edge > avg_edges) {
+
+          local_edge -= avg_edges;
+        } else {
+          local_edge = 0;
         }
+        // TODO change to int
+        edges_sum += local_edge * local_edge;
       }
-      edges_sum *= 950;
-      edges_sum /= (area.h * area.w);
-      if (edges_sum > lower_limit) {
-        divide = 1;
-      }
+    }
+    edges_sum *= 950;
+    edges_sum /= (area.h * area.w);
+    if (edges_sum > lower_limit) {
+      divide = 1;
     }
   }
   // if limit is reached
@@ -598,13 +590,15 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
                  rect area) {
   u64 avg_edges = 0;
-  for (u32 i = area.y; i < area.y + area.h; i++) {
-    for (u32 j = area.x; j < area.x + area.w; j++) {
+  if (b->format == YUV444) {
+    for (u32 i = area.y; i < area.y + area.h; i++) {
+      for (u32 j = area.x; j < area.x + area.w; j++) {
 
-      avg_edges += img->edges_map.ptr[i * img->size_y + j];
+        avg_edges += img->edges_map.ptr[i * img->size_x + j] * 10;
+      }
     }
+    avg_edges /= area.w * area.h;
   }
-  avg_edges /= area.w * area.h;
   // pixels are transalted form bitamp into array where some blocks are skipped
   stream ret;
   u32 esize = format_bpp(b->format);
@@ -649,18 +643,39 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
             u32 pixel_edge = img->edges_map.ptr[index];
             if (pixel_edge > avg_edges) {
               pixel_edge -= avg_edges;
-              diffrence_sum += powf(pixel_edge, 4.0f);
+              diffrence_sum += powf(pixel_edge, 3.0f);
             }
           }
         }
-        diffrence_sum = diffrence_sum * 100 / (b->x * b->y);
-        if (diffrence_sum >
-            threshold * avg_edges * avg_edges * avg_edges / 40) {
-          algo = 1;
-        } else {
-          algo = 0;
-        }
+        diffrence_sum = diffrence_sum * 800 / (b->x * b->y);
 
+        if (diffrence_sum <
+                threshold + threshold * avg_edges * avg_edges / 40 &&
+            avg_edges < 60) {
+          algo = 0;
+        } else {
+          if (i > 0 && j > 0 &&
+              diffrence_sum <
+                  threshold + threshold * avg_edges * avg_edges / 40) {
+            u16 pos = i * x_blocks_size + j - 1;
+            u32 bitshift = (pos % 4 * 2);
+            u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
+            pos = (i - 1) * x_blocks_size + j;
+            bitshift = (pos % 4 * 2);
+            u8 up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
+            if (up_block == 1 && left_block == 1) {
+
+              algo = 2;
+#if NOPREDICTION
+              algo = 1;
+#endif
+            } else {
+              algo = 1;
+            }
+          } else {
+            algo = 1;
+          }
+        }
       } else {
         u64 diffrence_sum = 0;
         u32 min_channel[4];
@@ -700,6 +715,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 
       // if  diffrence is bigger that means that block cannot be skipped
       if (algo == 1) {
+
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
             u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
@@ -707,7 +723,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
           }
         }
 
-      } else {
+      } else if (algo == 0) {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
         if (quad_s <= 8) {
@@ -750,6 +766,33 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
         dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
         dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
         dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
+      } else {
+        u32 simillar[3];
+        memset(simillar, 0, sizeof(u32) * 3);
+        for (u32 k = 0; k < qy; k++) {
+          for (u32 l = 0; l < qx; l++) {
+            union piexl_data dst_pix;
+            dst_pix.pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
+            union piexl_data up_pix;
+            up_pix.pixel = get_pixel(j * quad_s + l, (i - 1) * quad_s + k, b);
+            union piexl_data lef_pix;
+            lef_pix.pixel = get_pixel((j - 1) * quad_s + l, i * quad_s + k, b);
+            for (u32 c = 0; c < 3; c++) {
+              u32 a_diff =
+                  abs((i32)dst_pix.channels[c] - (i32)up_pix.channels[c]);
+              u32 b_diff =
+                  abs((i32)dst_pix.channels[c] - (i32)lef_pix.channels[c]);
+              if (a_diff > b_diff) {
+                simillar[c]++;
+              }
+            }
+          }
+        }
+        for (u32 c = 0; c < 3; c++) {
+          simillar[c] = simillar[c] * 255 / (qy * qx);
+          u8 val = simillar[c];
+          dstoffsetcopy(ret.ptr, &val, &offset, 1);
+        }
       }
       u32 pos = i * (x_blocks_size) + j;
       blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
@@ -767,7 +810,8 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
   bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
   // size of pixel
   u32 esize = format_bpp(format);
-  // realocating output stream to avoid memory safety issues if file is corupted
+  // realocating output stream to avoid memory safety issues if file is
+  // corupted
   str.ptr = realloc(str.ptr, size.w * size.h * esize);
   // index of  written last byte in stream
   u32 offset = 0;
@@ -812,11 +856,6 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 
             u32 pixel = 0;
             srcoffsetcopy(&pixel, str.ptr, &offset, esize);
-#if SHOW_BLOCKS
-            if (l == qx - 1 || k == qy - 1) {
-              pixel = 0x000000FF;
-            }
-#endif
             set_pixel(j * quad_s + l, i * quad_s + k, ret, pixel);
           }
         }
@@ -880,18 +919,45 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
             set_pixel(quad_s * j + k, quad_s * i + l, ret, *(u32 *)&pixel);
           }
         }
-#if SHOW_BLOCKS
+      } else {
+        u8 weight[3];
+        srcoffsetcopy(weight, str.ptr, &offset, 3);
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
-
-            if (l == qx - 1 || k == qy - 1) {
-              u32 pixel = 0x0000FF00;
-              set_pixel(quad_s * j + l, quad_s * i + k, ret, pixel);
+            union piexl_data a_pixel;
+            union piexl_data b_pixel;
+            a_pixel.pixel =
+                get_pixel(quad_s * (j - 1) + l, quad_s * i + k, ret);
+            b_pixel.pixel =
+                get_pixel(quad_s * j + l, quad_s * (i - 1) + k, ret);
+            union piexl_data out_pixel;
+            for (u32 c = 0; c < 3; c++) {
+              u32 color = (a_pixel.channels[c] * (u32)weight[c] +
+                           b_pixel.channels[c] * (u32)(255 - weight[c])) /
+                          255;
+              out_pixel.channels[c] = (u8)color;
             }
+            set_pixel(quad_s * j + l, quad_s * i + k, ret, out_pixel.pixel);
           }
         }
-#endif
       }
+#if SHOW_BLOCKS == 1
+      u32 color;
+      if (algo == 0) {
+        color = 0x80FF0000;
+      } else if (algo == 1) {
+        color = 0x0000FF00;
+      } else {
+        color = 0x00FFFF00;
+      }
+      for (u32 k = 0; k < qx; k++) {
+        set_pixel(quad_s * j + k, quad_s * i + qy - 1, ret, color);
+      }
+      for (u32 k = 0; k < qy; k++) {
+        set_pixel(quad_s * j + qx - 1, quad_s * i + k, ret, color);
+      }
+
+#endif
     }
   }
   free(str.ptr);
@@ -997,7 +1063,6 @@ bitmap *yuv_to_rgb(bitmap *b) {
       u32 yuv = get_pixel(j, i, b);
       u8 *yuv_channel = (u8 *)&yuv;
       u8 *rgb_channel = (u8 *)&rgb;
-
       rgb_channel[0] = YUV2R(yuv_channel[0], yuv_channel[1], yuv_channel[2]);
       rgb_channel[1] = YUV2G(yuv_channel[0], yuv_channel[1], yuv_channel[2]);
       rgb_channel[2] = YUV2B(yuv_channel[0], yuv_channel[1], yuv_channel[2]);

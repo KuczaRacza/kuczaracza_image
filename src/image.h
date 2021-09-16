@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#define VERSION 4
+#define VERSION 5
 #define MAGIC "KCZI"
 struct dict8 {
   u8 size;
@@ -35,6 +35,7 @@ struct image {
   dict8 *dicts;
   stream  edges_map;
   u32 avg_edges;
+  stream tree;
 };
 typedef struct image image;
 
@@ -56,6 +57,7 @@ union piexl_data{
   u32 pixel;
   rgba_color rgba;
   yuva_color yuva;
+  u8 channels[4];
 };
 
 // encodes whole image from bitmap
@@ -97,3 +99,4 @@ bitmap *rgb_to_yuv(bitmap *b);
 bitmap *yuv_to_rgb(bitmap *b);
 u64 edge_detection_yuv(bitmap *b, u32 x,u32 y);
 void edeges_map(image *img,bitmap * yuv);
+void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset);
