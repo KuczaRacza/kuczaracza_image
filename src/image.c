@@ -23,7 +23,7 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-#define SHOW_BLOCKS 1
+#define SHOW_BLOCKS 0
 #define SMALL_IMAGE_LIMIT 1000
 #define INFOLOGS 1
 #define NOPREDICTION 0
@@ -97,9 +97,9 @@ bitmap *decode(image *img) {
     // detrmining quad blokcs size
     u32 quad =
         (1 - img->parts[i].depth / (float)img->max_depth) * img->blok_size;
-    quad = (quad < 4) ? 4 : quad;
-	quad/=2;
-	quad*=2;
+    quad = (quad < 8) ? 8 : quad;
+    quad /= 2;
+    quad *= 2;
     // interoplating quads
     bitmap *btmp =
         recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs);
@@ -391,9 +391,9 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
     stream stmp;
     // size of each quad in cuttnig qads
     u32 quad = (1 - td / (float)max_depth) * max_block_size;
-    quad = (quad < 4) ? 4 : quad;
-	quad/=2;
-	quad*=2;
+    quad = (quad < 8) ? 8 : quad;
+    quad /= 2;
+    quad *= 2;
     u32 threshold = block_color_sensivity +
                     (1.0f - td / (float)max_depth) * block_color_sensivity;
     // alocates array where algorithms foreach blocks are written
@@ -639,7 +639,76 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
       u8 algo;
 
       if (b->format == YUV444) {
-        u64 diffrence_sum = 0;
+        /*
+          u64 diffrence_sum = 0;
+          for (u32 k = 0; k < qy; k++) {
+            for (u32 l = 0; l < qx; l++) {
+              u32 index = ((i * quad_s + k) + area.y) * img->size_x +
+                          (j * quad_s + l) + area.x;
+              u32 pixel_edge = img->edges_map.ptr[index];
+              if (pixel_edge > avg_edges) {
+                pixel_edge -= avg_edges;
+                diffrence_sum += powf(pixel_edge, 3.0f);
+              }
+            }
+          }
+          diffrence_sum = diffrence_sum * 800 / (b->x * b->y);
+
+          if (diffrence_sum <
+                  threshold + threshold * avg_edges * avg_edges / 40 &&
+              avg_edges < 60) {
+            algo = 0;
+          } else {
+            if (i > 0 && j > 0 &&
+                diffrence_sum <
+                    threshold + threshold * avg_edges * avg_edges / 40) {
+              u16 pos = i * x_blocks_size + j - 1;
+              u32 bitshift = (pos % 4 * 2);
+              u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >>
+  bitshift; pos = (i - 1) * x_blocks_size + j; bitshift = (pos % 4 * 2); u8
+  up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift; if (up_block
+  == 1 && left_block == 1) {
+
+                algo = 2;
+  #if NOPREDICTION
+                algo = 1;
+  #endif
+              } else {
+                algo = 1;
+              }
+            } else {
+              algo = 1;
+            }
+          }*/
+        union piexl_data cr[4];
+        cr[0].pixel = get_pixel(j * quad_s, i * quad_s, b);
+        cr[1].pixel = get_pixel(j * quad_s + qx - 1, i * quad_s, b);
+        cr[2].pixel = get_pixel(j * quad_s + qx - 1, i * quad_s + qy - 1, b);
+        cr[3].pixel = get_pixel(j * quad_s, i * quad_s + qy - 1, b);
+        u32 min_channel[4];
+        u32 max_channel[4];
+        memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
+        memset(max_channel, 0x0, sizeof(u32) * 4);
+        for (u32 k = 0; k < 4; k++) {
+          for (u32 m = 0; m < esize; m++) {
+
+            if (cr[k].channels[m] > max_channel[m]) {
+              max_channel[m] = cr[k].channels[m];
+            }
+            if (cr[k].channels[m] < min_channel[m]) {
+              min_channel[m] = cr[k].channels[m];
+            }
+          }
+        }
+
+        u32 biggest_diffrence = 0;
+        for (u32 m = 0; m < esize; m++) {
+          u32 this_diffrence = max_channel[m] - min_channel[m];
+          if (this_diffrence > biggest_diffrence) {
+            biggest_diffrence = this_diffrence;
+          }
+        }
+        u64 edges_sum = 0;
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
             u32 index = ((i * quad_s + k) + area.y) * img->size_x +
@@ -647,41 +716,13 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
             u32 pixel_edge = img->edges_map.ptr[index];
             if (pixel_edge > avg_edges) {
               pixel_edge -= avg_edges;
-              diffrence_sum += powf(pixel_edge, 3.0f);
+              edges_sum += powf(pixel_edge, 3.0f) * 3;
             }
           }
         }
-        diffrence_sum = diffrence_sum * 800 / (b->x * b->y);
-
-        if (diffrence_sum <
-                threshold + threshold * avg_edges * avg_edges / 40 &&
-            avg_edges < 60) {
-          algo = 0;
-        } else {
-          if (i > 0 && j > 0 &&
-              diffrence_sum <
-                  threshold + threshold * avg_edges * avg_edges / 40) {
-            u16 pos = i * x_blocks_size + j - 1;
-            u32 bitshift = (pos % 4 * 2);
-            u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-            pos = (i - 1) * x_blocks_size + j;
-            bitshift = (pos % 4 * 2);
-            u8 up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-            if (up_block == 1 && left_block == 1) {
-
-              algo = 2;
-#if NOPREDICTION
-              algo = 1;
-#endif
-            } else {
-              algo = 1;
-            }
-          } else {
-            algo = 1;
-          }
-        }
+        edges_sum /= (area.h * area.w);
+        
       } else {
-        u64 diffrence_sum = 0;
         u32 min_channel[4];
         u32 max_channel[4];
         memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
@@ -725,7 +766,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
         quad_rect.w = qx;
         quad_rect.h = qy;
         subsampling_yuv(b, quad_rect, ret, &offset);
-      } else {
+      } else if (algo == 0) {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
         if (quad_s <= 8) {

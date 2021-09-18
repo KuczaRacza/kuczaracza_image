@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     for (u32 j = 0; j < edges->x; j++) {
       u32 color = edge_detection_yuv(yuv_b, j, i);
   
-      set_pixel(j, i, edges,color * 20);
+      set_pixel(j, i, edges,color * 2);
     }
   }
   SDL_Surface *surf = bitmap_to_sdl(edges);
