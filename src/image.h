@@ -101,3 +101,5 @@ u64 edge_detection_yuv(bitmap *b, u32 x,u32 y);
 void edeges_map(image *img,bitmap * yuv);
 void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset);
 void desubsampling_yuv(bitmap *b, rect area, stream str, u32 *offset);
+void defullsampling(bitmap *b, rect area, stream str, u32 *offset);
+void fullsampling(bitmap *b, rect area, stream out, u32 *offset);

@@ -1,4 +1,5 @@
 #include "image.h"
+#include "consts.h"
 #include "types.h"
 #include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_pixels.h>
@@ -23,10 +24,6 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-#define SHOW_BLOCKS 0
-#define SMALL_IMAGE_LIMIT 1000
-#define INFOLOGS 1
-#define NOPREDICTION 0
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
               u32 block_color_sensivity, u32 complexity) {
   // alocating struct
@@ -639,76 +636,8 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
       u8 algo;
 
       if (b->format == YUV444) {
-        /*
-          u64 diffrence_sum = 0;
-          for (u32 k = 0; k < qy; k++) {
-            for (u32 l = 0; l < qx; l++) {
-              u32 index = ((i * quad_s + k) + area.y) * img->size_x +
-                          (j * quad_s + l) + area.x;
-              u32 pixel_edge = img->edges_map.ptr[index];
-              if (pixel_edge > avg_edges) {
-                pixel_edge -= avg_edges;
-                diffrence_sum += powf(pixel_edge, 3.0f);
-              }
-            }
-          }
-          diffrence_sum = diffrence_sum * 800 / (b->x * b->y);
 
-          if (diffrence_sum <
-                  threshold + threshold * avg_edges * avg_edges / 40 &&
-              avg_edges < 60) {
-            algo = 0;
-          } else {
-            if (i > 0 && j > 0 &&
-                diffrence_sum <
-                    threshold + threshold * avg_edges * avg_edges / 40) {
-              u16 pos = i * x_blocks_size + j - 1;
-              u32 bitshift = (pos % 4 * 2);
-              u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >>
-  bitshift; pos = (i - 1) * x_blocks_size + j; bitshift = (pos % 4 * 2); u8
-  up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift; if (up_block
-  == 1 && left_block == 1) {
-
-                algo = 2;
-  #if NOPREDICTION
-                algo = 1;
-  #endif
-              } else {
-                algo = 1;
-              }
-            } else {
-              algo = 1;
-            }
-          }*/
-        union piexl_data cr[4];
-        cr[0].pixel = get_pixel(j * quad_s, i * quad_s, b);
-        cr[1].pixel = get_pixel(j * quad_s + qx - 1, i * quad_s, b);
-        cr[2].pixel = get_pixel(j * quad_s + qx - 1, i * quad_s + qy - 1, b);
-        cr[3].pixel = get_pixel(j * quad_s, i * quad_s + qy - 1, b);
-        u32 min_channel[4];
-        u32 max_channel[4];
-        memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
-        memset(max_channel, 0x0, sizeof(u32) * 4);
-        for (u32 k = 0; k < 4; k++) {
-          for (u32 m = 0; m < esize; m++) {
-
-            if (cr[k].channels[m] > max_channel[m]) {
-              max_channel[m] = cr[k].channels[m];
-            }
-            if (cr[k].channels[m] < min_channel[m]) {
-              min_channel[m] = cr[k].channels[m];
-            }
-          }
-        }
-
-        u32 biggest_diffrence = 0;
-        for (u32 m = 0; m < esize; m++) {
-          u32 this_diffrence = max_channel[m] - min_channel[m];
-          if (this_diffrence > biggest_diffrence) {
-            biggest_diffrence = this_diffrence;
-          }
-        }
-        u64 edges_sum = 0;
+        u64 diffrence_sum = 0;
         for (u32 k = 0; k < qy; k++) {
           for (u32 l = 0; l < qx; l++) {
             u32 index = ((i * quad_s + k) + area.y) * img->size_x +
@@ -716,12 +645,40 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
             u32 pixel_edge = img->edges_map.ptr[index];
             if (pixel_edge > avg_edges) {
               pixel_edge -= avg_edges;
-              edges_sum += powf(pixel_edge, 3.0f) * 3;
+              diffrence_sum += powf(pixel_edge, 3.0f);
             }
           }
         }
-        edges_sum /= (area.h * area.w);
-        
+        diffrence_sum = diffrence_sum * 800 / (b->x * b->y);
+
+        if (diffrence_sum <
+                threshold + threshold * avg_edges * avg_edges / 40 &&
+            avg_edges < 60) {
+          algo = 0;
+        } else {
+          if (i > 0 && j > 0 &&
+              diffrence_sum <
+                  threshold + threshold * avg_edges * avg_edges / 40) {
+            u16 pos = i * x_blocks_size + j - 1;
+            u32 bitshift = (pos % 4 * 2);
+            u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
+            pos = (i - 1) * x_blocks_size + j;
+            bitshift = (pos % 4 * 2);
+            u8 up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
+            if (up_block == 1 && left_block == 1) {
+
+              algo = 2;
+#if NOPREDICTION
+              algo = 1;
+#endif
+            } else {
+              algo = 1;
+            }
+          } else {
+            algo = 1;
+          }
+        }
+
       } else {
         u32 min_channel[4];
         u32 max_channel[4];
@@ -765,7 +722,11 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
         quad_rect.y = quad_s * i;
         quad_rect.w = qx;
         quad_rect.h = qy;
+#if NOSUBSAMPLING
+        fullsampling(b, quad_rect, ret, &offset);
+#else
         subsampling_yuv(b, quad_rect, ret, &offset);
+#endif
       } else if (algo == 0) {
         u32 cr[4];
         memset(cr, 0, sizeof(u32) * 4);
@@ -899,8 +860,11 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
         quad_rect.y = quad_s * i;
         quad_rect.w = qx;
         quad_rect.h = qy;
+#if NOSUBSAMPLING
+        defullsampling(ret, quad_rect, str, &offset);
+#else
         desubsampling_yuv(ret, quad_rect, str, &offset);
-
+#endif
       } else if (algo == 0) {
 
         srcoffsetcopy(&cr[0], str.ptr, &offset, esize);
@@ -1129,8 +1093,8 @@ void edeges_map(image *img, bitmap *yuv) {
   img->avg_edges = all_edges / (yuv->x * yuv->y);
 }
 void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset) {
-  for (u32 i = area.y; i < area.h + area.y - 1; i += 2) {
-    for (u32 j = area.x; j < area.w + area.x - 1; j += 2) {
+  for (u32 i = area.y; i < ((area.h + area.y) / 2) * 2; i += 2) {
+    for (u32 j = area.x; j < ((area.w + area.x) / 2) * 2; j += 2) {
 
       u32 u_sample = 0;
       u32 v_sample = 0;
@@ -1155,19 +1119,29 @@ void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset) {
       dstoffsetcopy(out.ptr, &v_sample, offset, sizeof(u8));
     }
   }
-  for (u32 i = area.y; i < area.h + area.y; i++) {
-    for (u32 j = area.x; j < area.w + area.x; j++) {
-      if (i > area.h + area.y - 2 || j > area.w + area.x - 2) {
-        union piexl_data px;
-        px.pixel = get_pixel(j, i, b);
-        dstoffsetcopy(out.ptr, &px.pixel, offset, format_bpp(b->format));
-      }
+  if ((area.h) % 2) {
+    for (u32 i = area.x; i < area.x + area.w - 1; i++) {
+      union piexl_data px;
+      px.pixel = get_pixel(i, area.y + area.h - 1, b);
+      dstoffsetcopy(out.ptr, &px.pixel, offset, 3);
     }
+  }
+  if ((area.w) % 2) {
+    for (u32 i = area.y; i < area.h + area.y - 1; i++) {
+      union piexl_data px;
+      px.pixel = get_pixel(area.x + area.w - 1, i, b);
+      dstoffsetcopy(out.ptr, &px.pixel, offset, 3);
+    }
+  }
+  if (((area.h) % 2) || ((area.w) % 2)) {
+    union piexl_data px;
+    px.pixel = get_pixel(area.x + area.w - 1, area.y + area.h - 1, b);
+    dstoffsetcopy(out.ptr, &px.pixel, offset, 3);
   }
 }
 void desubsampling_yuv(bitmap *b, rect area, stream str, u32 *offset) {
-  for (u32 i = area.y; i < area.h + area.y - 1; i += 2) {
-    for (u32 j = area.x; j < area.w + area.x - 1; j += 2) {
+  for (u32 i = area.y; i < ((area.h + area.y) / 2) * 2; i += 2) {
+    for (u32 j = area.x; j < ((area.w + area.x) / 2) * 2; j += 2) {
       union piexl_data px;
 
       u8 y_val[4];
@@ -1183,13 +1157,42 @@ void desubsampling_yuv(bitmap *b, rect area, stream str, u32 *offset) {
       }
     }
   }
+  if ((area.h) % 2) {
+    for (u32 i = area.x; i < area.x + area.w - 1; i++) {
+      union piexl_data px;
+      srcoffsetcopy(&px.pixel, str.ptr, offset, 3);
+      set_pixel(i, area.y + area.h - 1, b, px.pixel);
+    }
+  }
+  if ((area.w) % 2) {
+    for (u32 i = area.y; i < area.h + area.y - 1; i++) {
+      union piexl_data px;
+      srcoffsetcopy(&px.pixel, str.ptr, offset, 3);
+      set_pixel(area.w + area.x - 1, i, b, px.pixel);
+    }
+  }
+  if (((area.h) % 2) || ((area.w) % 2)) {
+    union piexl_data px;
+    srcoffsetcopy(&px.pixel, str.ptr, offset, 3);
+    set_pixel(area.w + area.x - 1, area.y + area.h - 1, b, px.pixel);
+  }
+}
+void fullsampling(bitmap *b, rect area, stream out, u32 *offset) {
+  u8 esize = format_bpp(b->format);
   for (u32 i = area.y; i < area.h + area.y; i++) {
     for (u32 j = area.x; j < area.w + area.x; j++) {
-      if (i > area.h + area.y - 2 || j > area.w + area.x - 2) {
-        union piexl_data px;
-        srcoffsetcopy(&px, str.ptr, offset, format_bpp(b->format));
-        set_pixel(j, i, b, px.pixel);
-      }
+      u32 pix = get_pixel(j, i, b);
+      dstoffsetcopy(out.ptr, &pix, offset, esize);
+    }
+  }
+}
+void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
+  u8 esize = format_bpp(b->format);
+  for (u32 i = area.y; i < area.h + area.y; i++) {
+    for (u32 j = area.x; j < area.w + area.x; j++) {
+      u32 pix;
+      srcoffsetcopy(&pix, str.ptr, offset, esize);
+      set_pixel(j, i, b, pix);
     }
   }
 }
