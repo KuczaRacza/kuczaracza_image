@@ -13,7 +13,7 @@ struct region {
 	u16 y;
 	u16 w;
 	u16 h;
-	// pallete for each part
+	// palette for each part
 	u16 dict_index;
 	u8 depth;
 	stream pixels;
@@ -27,7 +27,7 @@ struct image {
 	u8 max_depth;
 	u16 blok_size;
 	u16 color_quant;
-	u16 color_sensivity;
+	u16 color_sensitivity;
 	// number of regions
 	u32 length;
 	u32 dicts_length;
@@ -61,8 +61,7 @@ union piexl_data {
 };
 
 // encodes whole image from bitmap
-image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
-							u32 block_color_sensivity, u32 complexity);
+image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction, u32 block_color_sensitivity, u32 complexity);
 // decode whole image to bitmap
 bitmap *decode(image *img);
 // writes image into array of pixels
@@ -70,31 +69,31 @@ stream seralize(image *img);
 // reads image form array of pixels
 image *deserialize(stream compressed_str);
 
-stream pallete(stream str, dict8 *d, u32 esize);
-stream depallete(stream str, dict8 *d, u32 esize);
+stream palette(stream str, dict8 *d, u32 esize);
+stream depalette(stream str, dict8 *d, u32 esize);
 u16 add_color(dict8 *d, u32 color);
 u32 get_dict(u8 index, dict8 *d);
 
 // redeuces number of colors
 void linear_quantization(bitmap *b, u32 quant, u8 alpha);
-// encodes image into rectangular treee
+// encodes image into rectangular tree
 void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
-										u32 block_color_sensivity, u32 complexity);
+										u32 block_color_sensitivity, u32 complexity);
 u32 count_colors(bitmap *b);
 // count colors in some area
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h);
-// cerates reatangles in react tree
+// cerates reatangles in rect tree
 void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 								 stream edges_map, u32 avg_edge);
 
-// omits unnessary blocks that might be interpolated based on corners
+// omits unnecessary blocks that might be interpolated based on corners
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 								 rect area);
-// interpoltes ommited blocks to fill gaps
+// interpolates omitted blocks to fill gaps
 bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 											 stream blocks);
 void free_image(image *img);
-// needs  to be implemented
+// needs to be implemented
 u32 average_color(rect area, bitmap *b);
 u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels);
 bitmap *rgb_to_yuv(bitmap *b);

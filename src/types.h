@@ -13,7 +13,11 @@ struct stream {
 	u64 size;
 };
 typedef struct stream stream;
-enum pixel_format { RGBA32, RGB24, DICTRGBA, DICTRGB, YUV444 };
+enum pixel_format { RGBA32,
+										RGB24,
+										DICTRGBA,
+										DICTRGB,
+										YUV444 };
 typedef enum pixel_format pixel_format;
 struct bitmap {
 	u32 x;

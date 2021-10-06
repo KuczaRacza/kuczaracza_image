@@ -15,13 +15,14 @@ int main(int argc, char **argv) {
 	for (uint16_t i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) {
 			printf(
-					"encodes image (webp/png/jpg/gif) into .kczr image\n enc  -i <input> "
-					"-o <output>\n options:\n -h    help\n -o    output filename.kczi\n "
+					"encodes image (webp/png/jpg/gif) into .kczr image\n"
+					"enc  -i <input> -o <output>\n"
+					"options:\n -h    help\n -o    output filename.kczi\n "
 					"-b "
 					"<number>"
 					"  size of bloks in px \n -q <number>   color reduction  "
 					"(none)1-128(two colors)\n"
-					"-s blocks diffrence sensivity \n");
+					"-s blocks difference sensitivity \n");
 			return 0;
 		} else if (strcmp(argv[i], "-o") == 0) {
 			export_path = argv[i + 1];

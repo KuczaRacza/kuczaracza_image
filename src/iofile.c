@@ -9,7 +9,7 @@
 void write(stream *wr, char *path) {
 	FILE *f = fopen(path, "wb");
 	if (f == NULL) {
-		fprintf(stderr, "file  %s doesn't exits\n", path);
+		fprintf(stderr, "file  %s doesn't exist\n", path);
 	}
 	const char *maigc = MAGIC;
 	u32 version = VERSION;
@@ -24,7 +24,7 @@ stream read(char *path) {
 
 	stream str;
 	if (f == NULL) {
-		fprintf(stderr, "file  %s doesn't exits\n", path);
+		fprintf(stderr, "file  %s doesn't exist\n", path);
 		return str;
 	}
 	fseek(f, 8, SEEK_CUR);

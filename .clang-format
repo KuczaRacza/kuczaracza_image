@@ -4,3 +4,6 @@ Language: Cpp
 IndentWidth: 2
 TabWidth: 2
 UseTab: Always
+ColumnLimit: 0
+AllowAllArgumentsOnNextLine: false
+AllowShortBlocksOnASingleLine: true
