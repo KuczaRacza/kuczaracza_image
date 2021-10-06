@@ -9,31 +9,31 @@ typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
 struct stream {
-  u8 *ptr;
-  u64 size;
+	u8 *ptr;
+	u64 size;
 };
 typedef struct stream stream;
-enum pixel_format { RGBA32, RGB24, DICTRGBA,DICTRGB,YUV444  };
+enum pixel_format { RGBA32, RGB24, DICTRGBA, DICTRGB, YUV444 };
 typedef enum pixel_format pixel_format;
 struct bitmap {
-  u32 x;
-  u32 y;
-  u32 row;
-  u8 format;
-  u8 *ptr;
+	u32 x;
+	u32 y;
+	u32 row;
+	u8 format;
+	u8 *ptr;
 };
 typedef struct bitmap bitmap;
 struct rect {
-  u32 x;
-  u32 y;
-  u32 w;
-  u32 h;
+	u32 x;
+	u32 y;
+	u32 w;
+	u32 h;
 };
 typedef struct rect rect;
 struct vector {
-  u32 size;
-  u32 capacity;
-  u8 *data;
+	u32 size;
+	u32 capacity;
+	u8 *data;
 };
 typedef struct vector vector;
 bitmap *create_bitmap(u32 size_x, u32 size_y, u32 row, u8 fmt);
