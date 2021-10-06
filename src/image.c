@@ -256,6 +256,7 @@ image *deserialize(stream compressed_str) {
 	}
 
 #endif
+	free(str.ptr);
 	return img;
 }
 
@@ -394,7 +395,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 		quad *= 2;
 		u32 threshold = block_color_sensitivity + (1.0f - td / (float)max_depth) * block_color_sensitivity;
 		// alocates array where algorithms foreach blocks are written
-		u32 blsize = (trt.w / quad) * (trt.h / quad);
+		u32 blsize = ((trt.w / quad == 0) ? 1 : trt.w / quad) * ((trt.h / quad == 0) ? 1 : trt.h / quad);
 		if (blsize % 4 != 0) {
 			blsize /= 4;
 			blsize++;
@@ -441,13 +442,14 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 		img->dicts = realloc(img->dicts, sizeof(dict8) * dict_len);
 	} else {
 		img->dicts_length = 0;
+		free(img->dicts);
 		img->dicts = NULL;
 	}
 	free(vec.data);
 }
 
 u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
-	u32 colors[128];
+	u32 colors[256];
 	u32 number = 0;
 	for (u32 i = y; i < y + h; i++) {
 		for (u32 j = x; j < x + w; j++) {
@@ -463,8 +465,8 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
 			if (unique == 1) {
 				colors[number] = pixel;
 				// in case of reaching limit
-				if (number == 127) {
-					return 128;
+				if (number == 255) {
+					return 256;
 				} else {
 					colors[number] = pixel;
 					number++;
@@ -521,9 +523,11 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 	// counting colors
 	u8 divide = 0;
 	if (format == DICTRGBA || format == DICTRGB) {
-		u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
-		if (cols > 127) {
-			divide = 1;
+		if (area.w > 16 || area.h > 16) {
+			u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
+			if (cols > 255) {
+				divide = 1;
+			}
 		}
 	} else if (area.w > 64 || area.h > 64) {
 		u64 edges_sum = 0;
@@ -626,7 +630,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 			if (i + 1 == y_blocks_size) {
 				qy = b->y - quad_s * i;
 			}
-			if (j + 1 == b->x / quad_s) {
+			if (j + 1 == x_blocks_size) {
 				qx = b->x - quad_s * j;
 			}
 
