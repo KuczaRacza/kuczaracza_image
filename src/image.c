@@ -36,9 +36,13 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 	img->blok_size = max_block_size;
 	img->color_quant = color_reduction;
 	img->color_sensitivity = block_color_sensitivity;
-	// copy bitmap to avoid input overwrite
+	// copy bitmap to avoid altering input data
 	bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
+	//determines mode
+	//dictronaries/index mode for small images
+	//standart mode for bigger images
 	if (copy->x > SMALL_IMAGE_LIMIT || copy->y > SMALL_IMAGE_LIMIT && copy->format != RGBA32) {
+		//converts to yuv44
 		copy->format = YUV444;
 		bitmap *yuv_bitmap = rgb_to_yuv(copy);
 		free_bitmap(copy);
@@ -53,7 +57,8 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 		}
 	}
 
-	// reduce clors
+	// reduce colors
+	//should only be use in index mode
 	if (color_reduction > 1) {
 		linear_quantization(copy, color_reduction, 0);
 	}
@@ -73,17 +78,23 @@ bitmap *decode(image *img) {
 	}
 
 	bitmap *map = create_bitmap(img->size_x, img->size_y, img->size_x, return_format);
-
+	//pixel size in B
 	u32 esize = format_bpp(img->format);
 
 	for (u32 i = 0; i < img->length; i++) {
 		// translate from palette to real colors
 		stream str;
 		if (img->format == DICTRGB || img->format == DICTRGBA) {
+			//translate indexed colors in truecolors
 			str = depalette(img->parts[i].pixels,
 											&img->dicts[img->parts[i].dict_index], esize);
 		} else {
-			str.ptr = malloc(img->parts[i].pixels.size);
+			//walkaround
+			//needs  to be changed
+			//avoids double free
+			//function recrate_quads reallocs
+			//and makes img->parts[i].pixels.ptr invalid
+			str = img->parts[i].pixels;
 			str.size = img->parts[i].pixels.size;
 			memcpy(str.ptr, img->parts[i].pixels.ptr, str.size);
 		}
@@ -93,12 +104,14 @@ bitmap *decode(image *img) {
 		part_rect.y = img->parts[i].y;
 		part_rect.w = img->parts[i].w;
 		part_rect.h = img->parts[i].h;
-		// detrmining quad blocks size
+		//determines quad blocks size
 		u32 quad = (1 - img->parts[i].depth / (float)img->max_depth) * img->blok_size;
 		quad = (quad < 8) ? 8 : quad;
+		//makes them size even
+		//easier subsampling
 		quad /= 2;
 		quad *= 2;
-		// interpolating quads
+		// writes decompress to bitmap pixels
 		bitmap *btmp = recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs);
 		// copying pixels
 		for (u32 j = 0; j < img->parts[i].h; j++) {
@@ -116,6 +129,7 @@ bitmap *decode(image *img) {
 	}
 
 	if (img->format == YUV444) {
+		//convert to RGB
 		bitmap *rgb_map = yuv_to_rgb(map);
 		free_bitmap(map);
 		map = rgb_map;
@@ -181,13 +195,14 @@ stream seralize(image *img) {
 		dstoffsetcopy(str.ptr, &img->parts[i].blokcs.size, &offset, sizeof(u32));
 		dstoffsetcopy(str.ptr, img->parts[i].blokcs.ptr, &offset, img->parts[i].blokcs.size);
 	}
-
+	//saves only nessary info from dict
 	for (u32 i = 0; i < img->dicts_length; i++) {
 		dstoffsetcopy(str.ptr, &img->dicts[i].size, &offset, sizeof(u8));
 		for (u32 j = 0; j < img->dicts[i].size; j++) {
 			dstoffsetcopy(str.ptr, &img->dicts[i].colors[j], &offset, esize);
 		}
 	}
+	//compress using zstd
 	stream compressed_str;
 	compressed_str.size = str.size;
 	compressed_str.ptr = malloc(compressed_str.size);
@@ -259,7 +274,7 @@ image *deserialize(stream compressed_str) {
 	free(str.ptr);
 	return img;
 }
-
+//resuces colors
 void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
 	for (u32 i = 0; i < b->y; i++) {
 		for (u32 j = 0; j < b->x; j++) {
@@ -355,7 +370,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 	u32 length = vec.size / element_size;
 	img->length = length;
 	img->dicts_length = length;
-	// allocating space needed to write down parts
+	// allocates space needed to write down parts
 	img->parts = malloc(sizeof(region) * length);
 	img->dicts = calloc(sizeof(dict8), length);
 
@@ -385,16 +400,19 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 		img->parts[i].w = trt.w;
 		img->parts[i].h = trt.h;
 		img->parts[i].depth = td;
-
+		//copy bitmap
+		//need to be changed
+		//may cause slowdowns
 		bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
 		stream stmp;
-		// size of each quad in cuttnig qads
+		// size of each quad
 		u32 quad = (1 - td / (float)max_depth) * max_block_size;
 		quad = (quad < 8) ? 8 : quad;
 		quad /= 2;
 		quad *= 2;
 		u32 threshold = block_color_sensitivity + (1.0f - td / (float)max_depth) * block_color_sensitivity;
-		// alocates array where algorithms foreach blocks are written
+		// allocates array where algorithms foreach blocks are written
+		//avoids zero as result
 		u32 blsize = ((trt.w / quad == 0) ? 1 : trt.w / quad) * ((trt.h / quad == 0) ? 1 : trt.h / quad);
 		if (blsize % 4 != 0) {
 			blsize /= 4;
@@ -402,9 +420,10 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 		} else {
 			blsize /= 4;
 		}
+
 		img->parts[i].blokcs.size = blsize;
 		img->parts[i].blokcs.ptr = calloc(1, blsize);
-		// pixels with cutted unnesseary quads
+		// encode pixes as smaller blocks commpresed with few algorithms
 		stmp = cut_quads(btmp, quad, threshold, img->parts[i].blokcs, img, trt);
 		// palletting pixels and witing to image struct
 		if (img->format == DICTRGB || img->format == DICTRGBA) {
@@ -412,10 +431,14 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 					palette(stmp, &img->dicts[dict_len], format_bpp(btmp->format));
 			if (dict_len > 0 && complexity > 0) {
 				u8 merged = 0;
+				//tries to merge dicts
+				//cost a lot of time
 				for (i32 j = dict_len; j > 0; j--) {
 					if (img->dicts[dict_len - j].size + img->dicts[dict_len].size < 300) {
 						if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
 														&img->parts[i].pixels) == 1) {
+							//merge is successfull
+							//two region are sharing the same index
 							img->parts[i].dict_index = dict_len - j;
 							merged = 1;
 							break;
@@ -431,8 +454,10 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 				img->parts[i].dict_index = dict_len;
 				dict_len++;
 			}
+			//frees old pixels used  bedfore indexing
 			free(stmp.ptr);
 		} else {
+			//YUV
 			img->parts[i].pixels = stmp;
 		}
 		free_bitmap(btmp);
@@ -478,9 +503,11 @@ u32 count_colors_rect(bitmap *b, u32 x, u32 y, u32 w, u32 h) {
 }
 
 u64 edge_detection_yuv(bitmap *b, u32 x, u32 y) {
+	//detects  edges
 	const u32 distance = 2;
 	u32 this_pixel = get_pixel(x, y, b);
 	u8 pixel_y = *(u8 *)&this_pixel;
+	//measures difference between average of 4 pixels and measurement point
 	u32 avrg = 0;
 	u32 background_pixels[4];
 	u8 avalible[4];
@@ -523,6 +550,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 	// counting colors
 	u8 divide = 0;
 	if (format == DICTRGBA || format == DICTRGB) {
+		//minimal region size limit
 		if (area.w > 16 || area.h > 16) {
 			u32 cols = count_colors_rect(raw, area.x, area.y, area.w, area.h);
 			if (cols > 255) {
@@ -557,7 +585,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 	}
 	// if limit is reached
 	if (divide) {
-		// cereating two rects
+		// creates two rects
 		rect arect;
 		rect brect;
 		// if depth is even splits horizontal if odd splits vertical
@@ -609,7 +637,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 	ret.size = b->x * b->y * esize;
 	ret.ptr = malloc(ret.size);
 	u32 offset = 0;
-	// for each block
+	//checks if quad size is bigger than region
 	u32 x_blocks_size = b->x / quad_s;
 	u32 y_blocks_size = b->y / quad_s;
 	if (x_blocks_size == 0) {
@@ -623,10 +651,10 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 
 	for (u32 i = 0; i < y_blocks_size; i++) {
 		for (u32 j = 0; j < x_blocks_size; j++) {
-			// corners
 			u32 qx = quad_s;
 			u32 qy = quad_s;
-
+			//quads on border may have different sizes
+			//to endcode without padding
 			if (i + 1 == y_blocks_size) {
 				qy = b->y - quad_s * i;
 			}
@@ -638,6 +666,10 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 			u8 algo;
 
 			if (b->format == YUV444) {
+				//decides algorithm  for block based on edges and color difference
+				//this part sucks
+
+				//checks if  block is on edge of two objects
 				u64 difference_sum = 0;
 				for (u32 k = 0; k < qy; k++) {
 					for (u32 l = 0; l < qx; l++) {
@@ -681,6 +713,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				}
 
 			} else {
+				//in index mode only color difference decides which algo is use
 				u32 min_channel[4];
 				u32 max_channel[4];
 				memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
@@ -714,10 +747,8 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				}
 			}
 
-			// caluclates biggest difference in color per channel
-
-			// if  difference is bigger that means that block cannot be skipped
 			if (algo == 1) {
+				//encode fullres / subsampled block
 				rect quad_rect;
 				quad_rect.x = quad_s * j;
 				quad_rect.y = quad_s * i;
@@ -737,6 +768,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					cr[2] = get_pixel(j * quad_s + qx - 1, i * quad_s + qy - 1, b);
 					cr[3] = get_pixel(j * quad_s, i * quad_s + qy - 1, b);
 				} else {
+					//average color on corners
 					rect areas[4];
 					areas[0].x = j * quad_s;
 					areas[1].x = j * quad_s + qx - (qx / 4);
@@ -767,11 +799,15 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					cr[2] = average_color(areas[2], b);
 					cr[3] = average_color(areas[3], b);
 				}
+				//only corners are written down
+				//rest of pixels are going  to be interpolated
 				dstoffsetcopy(ret.ptr, &cr[0], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
 			} else {
+				//prediction mode
+				//sucks for now
 				u32 simillar[3];
 				memset(simillar, 0, sizeof(u32) * 3);
 				for (u32 k = 0; k < qy; k++) {
@@ -926,6 +962,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 					}
 				}
 			} else {
+				//prediction mode
 				u8 weight[3];
 				srcoffsetcopy(weight, str.ptr, &offset, 3);
 				for (u32 k = 0; k < qy; k++) {
@@ -980,13 +1017,15 @@ void free_image(image *img) {
 	free(img);
 }
 u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
+	//number of repeatings colores
 	u8 matches = 0;
+	//pair of swapped colors
 	u8 in[256];
 	u8 out[256];
+	//tracks witch color was changed
 	u8 changed[256];
-	for (u32 i = 0; i < 256; i++) {
-		changed[i] = 0;
-	}
+	memset(changed, 0, sizeof(u8) * 256);
+	//finds reprating colors
 	for (u32 i = 0; i < dst->size; i++) {
 		for (u32 j = 0; j < src->size; j++) {
 
@@ -998,9 +1037,11 @@ u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
 			}
 		}
 	}
+	//if dicts are too big to merge , quits
 	if ((i32)dst->size + (i32)src->size - matches >= 255) {
 		return 0;
 	} else {
+		//apeands non reapeating colors at end of destination dict
 		for (u32 i = 0; i < (u32)src->size; i++) {
 			if (changed[i] == 0) {
 				dst->colors[dst->size] = src->colors[i];
@@ -1012,6 +1053,7 @@ u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
 			}
 		}
 	}
+	//changes indexed pixel to match new indexes
 	for (u32 i = 0; i < pixels->size; i++) {
 		if (changed[pixels->ptr[i]] == 1) {
 			for (u32 j = 0; j < matches; j++) {
@@ -1025,6 +1067,7 @@ u8 merge_dicts(dict8 *dst, dict8 *src, stream *pixels) {
 
 	return 1;
 }
+//average color for each channel in given area
 u32 average_color(rect area, bitmap *b) {
 	u32 avg[4];
 	memset(avg, 0, sizeof(u32) * 4);
@@ -1077,6 +1120,7 @@ bitmap *yuv_to_rgb(bitmap *b) {
 	}
 	return ret;
 }
+//finds edges on whole image 
 void edeges_map(image *img, bitmap *yuv) {
 	stream edges;
 	u64 all_edges = 0;
@@ -1093,6 +1137,7 @@ void edeges_map(image *img, bitmap *yuv) {
 	img->avg_edges = all_edges / (yuv->x * yuv->y);
 }
 void subsampling_yuv(bitmap *b, rect area, stream out, u32 *offset) {
+
 	for (u32 i = area.y; i < ((area.h + area.y) / 2) * 2; i += 2) {
 		for (u32 j = area.x; j < ((area.w + area.x) / 2) * 2; j += 2) {
 
