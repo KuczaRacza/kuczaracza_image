@@ -39,26 +39,7 @@ struct image {
 };
 typedef struct image image;
 
-struct rgba_color {
-	u8 r;
-	u8 g;
-	u8 b;
-	u8 a;
-};
-typedef struct rgba_color rgba_color;
-struct yuva_color {
-	u8 y;
-	u8 u;
-	u8 v;
-	u8 a;
-};
-typedef struct yuva_color yuva_color;
-union piexl_data {
-	u32 pixel;
-	rgba_color rgba;
-	yuva_color yuva;
-	u8 channels[4];
-};
+
 
 // encodes whole image from bitmap
 image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction, u32 block_color_sensitivity, u32 complexity);

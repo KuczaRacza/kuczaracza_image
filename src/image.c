@@ -1120,7 +1120,7 @@ bitmap *yuv_to_rgb(bitmap *b) {
 	}
 	return ret;
 }
-//finds edges on whole image 
+//finds edges on whole image
 void edeges_map(image *img, bitmap *yuv) {
 	stream edges;
 	u64 all_edges = 0;
@@ -1238,6 +1238,81 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
 			u32 pix;
 			srcoffsetcopy(&pix, str.ptr, offset, esize);
 			set_pixel(j, i, b, pix);
+		}
+	}
+}
+/*
+void dct(float **DCTMatrix, float **Matrix, u16 qx , u16 qy){
+
+    int i, j, u, v;
+    for (u = 0; u < N; ++u) {
+        for (v = 0; v < M; ++v) {
+        DCTMatrix[u][v] = 0;
+            for (i = 0; i < N; i++) {
+                for (j = 0; j < M; j++) {
+                    DCTMatrix[u][v] += Matrix[i][j] * cos(M_PI/((float)N)*(i+1./2.)*u)*cos(M_PI/((float)M)*(j+1./2.)*v);
+                }               
+            }
+        }
+    }  
+ }
+*/
+void dct_block(bitmap *b, rect area, stream out, u32 *offset) {
+	u8 esize = format_bpp(b->format);
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			float coefficient[4];
+			memset(coefficient, 0, sizeof(float) * esize);
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					union piexl_data data;
+					data.pixel = get_pixel(x + area.x, y + area.y, b);
+					for (u32 c = 0; c < esize; c++) {
+						coefficient[c] += data.channels[c] * cos(M_PI / ((float)area.w) * (x + 1. / 2.) * j) * cos(M_PI / ((float)area.h) * (y + 1. / 2.) * i);
+					}
+				}
+			}
+
+			dstoffsetcopy(out.ptr, &coefficient, offset, sizeof(float) * esize);
+		}
+	}
+}
+
+/*
+void idct(float **Matrix, float **DCTMatrix, int N, int M){
+    int i, j, u, v;
+
+    for (u = 0; u < N; ++u) {
+        for (v = 0; v < M; ++v) {
+          Matrix[u][v] = 1/4.*DCTMatrix[0][0];
+          for(i = 1; i < N; i++){
+          Matrix[u][v] += 1/2.*DCTMatrix[i][0];
+           }
+           for(j = 1; j < M; j++){
+          Matrix[u][v] += 1/2.*DCTMatrix[0][j];
+           }
+
+           for (i = 1; i < N; i++) {
+                for (j = 1; j < M; j++) {
+                    Matrix[u][v] += DCTMatrix[i][j] * cos(M_PI/((float)N)*(u+1./2.)*i)*cos(M_PI/((float)M)*(v+1./2.)*j);
+                }               
+            }
+        Matrix[u][v] *= 2./((float)N)*2./((float)M);
+        }
+    }  
+ }
+*/
+void inverse_dct_block(bitmap *b, rect area, stream in, u32 *offset) {
+	u32 internal_offset = *offset;
+	u8 esize = format_bpp(b->format);
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					for (u32 c = 0; c < esize; c++) {
+					}
+				}
+			}
 		}
 	}
 }
