@@ -69,7 +69,7 @@ float **preapare_matix(bitmap *b) {
 			for (u32 c = 0; c < 3; c++) {
 				col += color_ptr.channels[c];
 			}
-			matrix[i][j] = (float)col / (255.0f * 3);
+			matrix[i][j] = (float)col / 3.0f;
 		}
 	}
 	return matrix;
