@@ -105,7 +105,7 @@ bitmap *decode(image *img) {
 		part_rect.w = img->parts[i].w;
 		part_rect.h = img->parts[i].h;
 		//determines quad blocks size
-		u32 quad = (1 - img->parts[i].depth / (float)img->max_depth) * img->blok_size;
+		u32 quad = (1 - img->parts[i].depth / (double)img->max_depth) * img->blok_size;
 		quad = (quad < 8) ? 8 : quad;
 		//makes them size even
 		//easier subsampling
@@ -280,10 +280,10 @@ void linear_quantization(bitmap *b, u32 quant, u8 alpha) {
 		for (u32 j = 0; j < b->x; j++) {
 			u32 color = get_pixel(j, i, b);
 			u8 *col = (u8 *)&color;
-			float q = quant;
+			double q = quant;
 			// omits alpha if not present in image
 			for (u8 k = 0; k < ((alpha & 1) ? 4 : 3); k++) {
-				float cl = roundf((float)col[k] / q) * (float)q;
+				double cl = roundf((double)col[k] / q) * (double)q;
 				col[k] = (cl > 255) ? 255 : cl;
 			}
 			set_pixel(j, i, b, color);
@@ -406,11 +406,11 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 		bitmap *btmp = copy_bitmap(raw, trt.x, trt.y, trt.w, trt.h);
 		stream stmp;
 		// size of each quad
-		u32 quad = (1 - td / (float)max_depth) * max_block_size;
+		u32 quad = (1 - td / (double)max_depth) * max_block_size;
 		quad = (quad < 8) ? 8 : quad;
 		quad /= 2;
 		quad *= 2;
-		u32 threshold = block_color_sensitivity + (1.0f - td / (float)max_depth) * block_color_sensitivity;
+		u32 threshold = block_color_sensitivity + (1.0f - td / (double)max_depth) * block_color_sensitivity;
 		// allocates array where algorithms foreach blocks are written
 		//avoids zero as result
 		u32 blsize = ((trt.w / quad == 0) ? 1 : trt.w / quad) * ((trt.h / quad == 0) ? 1 : trt.h / quad);
@@ -915,7 +915,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 				rgba_color *corners = (rgba_color *)cr;
 				for (u32 k = 1; k < qx - 1; k++) {
 					// intrpolating horizontally upper edge
-					float dist = (float)k / (qx - 1);
+					double dist = (double)k / (qx - 1);
 					rgba_color pixel;
 					rgba_color pixelb = *(rgba_color *)&cr[0];
 					rgba_color pixela = *(rgba_color *)&cr[1];
@@ -929,7 +929,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 				}
 				// intrpolating horizontally lower edge
 				for (u32 k = 1; k < qx - 1; k++) {
-					float dist = (float)k / (qx - 1);
+					double dist = (double)k / (qx - 1);
 					rgba_color pixel;
 					rgba_color pixelb = *(rgba_color *)&cr[3];
 					rgba_color pixela = *(rgba_color *)&cr[2];
@@ -949,7 +949,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 					rgba_color pixela = *(rgba_color *)&colb;
 					for (u32 l = 1; l < qy - 1; l++) {
 
-						float dist = (float)l / (qy - 1);
+						double dist = (double)l / (qy - 1);
 						rgba_color pixel;
 
 						pixel.r = roundf(pixela.r * dist + pixelb.r * (1.0f - dist));
@@ -1083,7 +1083,7 @@ u32 average_color(rect area, bitmap *b) {
 	}
 	u32 res_avg = 0;
 	for (u32 k = 0; k < esize; k++) {
-		*(((u8 *)&res_avg) + k) = roundf(avg[k] / (float)(area.w * area.h));
+		*(((u8 *)&res_avg) + k) = roundf(avg[k] / (double)(area.w * area.h));
 	}
 	return res_avg;
 }
@@ -1242,7 +1242,7 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
 	}
 }
 /*
-void dct(float **DCTMatrix, float **Matrix, u16 qx , u16 qy){
+void dct(double **DCTMatrix, double **Matrix, u16 qx , u16 qy){
 
     int i, j, u, v;
     for (u = 0; u < N; ++u) {
@@ -1250,7 +1250,7 @@ void dct(float **DCTMatrix, float **Matrix, u16 qx , u16 qy){
         DCTMatrix[u][v] = 0;
             for (i = 0; i < N; i++) {
                 for (j = 0; j < M; j++) {
-                    DCTMatrix[u][v] += Matrix[i][j] * cos(M_PI/((float)N)*(i+1./2.)*u)*cos(M_PI/((float)M)*(j+1./2.)*v);
+                    DCTMatrix[u][v] += Matrix[i][j] * cos(M_PI/((double)N)*(i+1./2.)*u)*cos(M_PI/((double)M)*(j+1./2.)*v);
                 }               
             }
         }
@@ -1261,25 +1261,25 @@ void dct_block(bitmap *b, rect area, stream out, u32 *offset) {
 	u8 esize = format_bpp(b->format);
 	for (u32 i = 0; i < area.h; i++) {
 		for (u32 j = 0; j < area.w; j++) {
-			float coefficient[4];
-			memset(coefficient, 0, sizeof(float) * esize);
+			double coefficient[4];
+			memset(coefficient, 0, sizeof(double) * esize);
 			for (u32 y = 0; y < area.h; y++) {
 				for (u32 x = 0; x < area.w; x++) {
 					union piexl_data data;
 					data.pixel = get_pixel(x + area.x, y + area.y, b);
 					for (u32 c = 0; c < esize; c++) {
-						coefficient[c] += data.channels[c] * cos(M_PI / ((float)area.w) * (x + 1. / 2.) * j) * cos(M_PI / ((float)area.h) * (y + 1. / 2.) * i);
+						coefficient[c] += data.channels[c] * cos(M_PI / ((double)area.w) * (x + 1. / 2.) * j) * cos(M_PI / ((double)area.h) * (y + 1. / 2.) * i);
 					}
 				}
 			}
 
-			dstoffsetcopy(out.ptr, &coefficient, offset, sizeof(float) * esize);
+			dstoffsetcopy(out.ptr, &coefficient, offset, sizeof(double) * esize);
 		}
 	}
 }
 
 /*
-void idct(float **Matrix, float **DCTMatrix, int N, int M){
+void idct(double **Matrix, double **DCTMatrix, int N, int M){
     int i, j, u, v;
 
     for (u = 0; u < N; ++u) {
@@ -1294,10 +1294,10 @@ void idct(float **Matrix, float **DCTMatrix, int N, int M){
 
            for (i = 1; i < N; i++) {
                 for (j = 1; j < M; j++) {
-                    Matrix[u][v] += DCTMatrix[i][j] * cos(M_PI/((float)N)*(u+1./2.)*i)*cos(M_PI/((float)M)*(v+1./2.)*j);
+                    Matrix[u][v] += DCTMatrix[i][j] * cos(M_PI/((double)N)*(u+1./2.)*i)*cos(M_PI/((double)M)*(v+1./2.)*j);
                 }               
             }
-        Matrix[u][v] *= 2./((float)N)*2./((float)M);
+        Matrix[u][v] *= 2./((double)N)*2./((double)M);
         }
     }  
  }
