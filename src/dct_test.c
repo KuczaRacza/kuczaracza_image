@@ -4,100 +4,114 @@
 #include <SDL2/SDL_pixels.h>
 #include <SDL2/SDL_surface.h>
 #include <math.h>
-
 #include <stdio.h>
 #include <string.h>
 
-stream dct(bitmap *b) {
-	stream str;
-	str.size = b->x * b->y * sizeof(double);
-	str.ptr = calloc(str.size, 1);
-	double *dct_matrix = (double *)str.ptr;
-
-	for (u32 i = 0; i < b->y; i++) {
-		for (u32 j = 0; j < b->x; j++) {
-			for (u32 y = 0; y < b->y; y++) {
-				for (u32 x = 0; x < b->x; x++) {
+void dct(bitmap *b, rect area, stream str, u32 *offset) {
+	float *dct_matrix = (float *)(str.ptr + *offset);
+	u32 esize = format_bpp(b->format);
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
 					union piexl_data pixel;
-					pixel.pixel = get_pixel(x, y, b);
-					double normalized = (pixel.rgba.r / 127.5f) - 1.0f;
-					dct_matrix[i * b->x + j] += normalized * cos((M_PI /(double) b->x) * (x + 0.5f) * j) * cos((M_PI / (double)b->y) * (y + 0.5f) * i) / (double)(b->x * b->y) * 4.0f;
+					pixel.pixel = get_pixel(x + area.x, y + area.y, b);
+					for (u32 c = 0; c < esize; c++) {
+						float normalized = (pixel.channels[c] / 127.5f) - 1.0f;
+						dct_matrix[i * area.w + j + area.w * area.h * c] += normalized * cosf((M_PI / (float)area.w) * (x + 0.5f) * j) * cosf((M_PI / (float)area.h) * (y + 0.5f) * i) / (float)(area.w * area.h) * 4.0f;
+					}
 				}
 			}
 		}
 	}
-	return str;
+	*offset += area.w * area.h * sizeof(float);
 }
-bitmap *idct(stream dct_matrix, u32 size_x, u32 size_y) {
-	bitmap *b = create_bitmap(size_x, size_y, size_x, RGB24);
+void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
+	u32 esize = format_bpp(b->format);
 	stream idct_matrx;
-	idct_matrx.ptr = calloc(sizeof(double), size_x * size_y);
-	idct_matrx.size = sizeof(double) * size_x * size_y;
-	double *pixel = (double *)idct_matrx.ptr;
-	double *dct_mat = (double *)dct_matrix.ptr;
-	for (u32 i = 1; i < size_y; i++) {
-		for (u32 j = 1; j < size_x; j++) {
-			for (u32 y = 0; y < size_y; y++) {
-				for (u32 x = 0; x < size_x; x++) {
-					double normalized = dct_mat[i * size_x + j];
-					normalized = normalized * cos((M_PI / b->x) * (x + 0.5f) * j) * cos((M_PI / b->y) * (y + 0.5f) * i);
-					pixel[y * size_x + x] += normalized;
+	idct_matrx.ptr = calloc(sizeof(float), area.w * area.h * esize);
+	idct_matrx.size = sizeof(float) * area.w * area.h * esize;
+	float *pixel = (float *)idct_matrx.ptr;
+	float *dct_mat = (float *)(dct_matrix.ptr + *offset);
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 j = 1; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					for (u32 c = 0; c < esize; c++) {
+						float normalized = dct_mat[i * area.w + j + area.w * area.h * c];
+						normalized = normalized * cosf((M_PI / area.w) * (x + 0.5f) * j) * cosf((M_PI / area.h) * (y + 0.5f) * i);
+						pixel[y * area.w + x + area.w * area.h * c] += normalized;
+					}
 				}
 			}
 		}
 	}
 
-	for (u32 i = 1; i < size_y; i++) {
-		for (u32 y = 0; y < size_y; y++) {
-			for (u32 x = 0; x < size_x; x++) {
-				double normalized = dct_mat[i * size_x];
-				normalized = normalized * 0.5f * cos((M_PI / b->y) * (y + 0.5f) * i);
-				pixel[y * size_x + x] += normalized;
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i * area.w + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.h) * (y + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
 			}
 		}
 	}
-	for (u32 i = 1; i < size_x; i++) {
-		for (u32 y = 0; y < size_y; y++) {
-			for (u32 x = 0; x < size_x; x++) {
-				double normalized = dct_mat[i];
-				normalized = normalized * 0.5f *  cos((M_PI / b->x) * (x + 0.5f) * i);
-				pixel[y * size_x + x] += normalized;
+	for (u32 i = 1; i < area.w; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.w) * (x + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
 			}
 		}
 	}
 
-	for (u32 i = 0; i < b->y; i++) {
-		for (u32 j = 0; j < b->x; j++) {
-			double normalized = dct_mat[0];
-			normalized = normalized;
-			pixel[j * size_y + i] += 0.25f * normalized;
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = dct_mat[area.w * area.h * c];
+				normalized = normalized;
+				pixel[i * area.w + j + area.w * area.h * c] += 0.25f * normalized;
+			}
 		}
 	}
-	for (u32 y = 0; y < size_y; y++) {
-		for (u32 x = 0; x < size_x; x++) {
+	for (u32 y = 0; y < area.h; y++) {
+		for (u32 x = 0; x < area.w; x++) {
 			union piexl_data px;
-			double normalized = (pixel[y * size_x + x] + 1.0f) * 127.5f;
-			if(normalized >255){
-				normalized = 255;
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = (pixel[y * area.w + x + area.w * area.h * c] + 1.0f) * 127.5f;
+				if (normalized > 255) {
+					normalized = 255;
+				} else if (normalized < 0) {
+					normalized = 0;
+				}
+				px.channels[c] = normalized;
 			}
-			else if(normalized <0){
-				normalized =0;
-			}
-			px.rgba.r = normalized;
-			px.rgba.g = px.rgba.r;
-			px.rgba.b = px.rgba.r;
-			px.rgba.a = 255;
 			set_pixel(x, y, b, px.pixel);
 		}
 	}
-	return b;
+	*offset += sizeof(float) * area.w * area.h * esize;
 }
 int main(int argc, char **argv) {
 	SDL_Surface *surf = IMG_Load(argv[1]);
 	bitmap *b = sdl_to_bitmap(surf);
-	stream dct_s = dct(b);
+	stream dct_matrix;
+	dct_matrix.ptr = calloc(b->x * b->y, sizeof(float) * format_bpp(b->format));
+	u32 offset = 0;
+	rect area;
+	area.x = 0;
+	area.y = 0;
+	area.w = b->x;
+	area.h = b->y;
+	dct(b, area, dct_matrix, &offset);
 
-	bitmap *b2 = idct(dct_s, b->x, b->y);
+	bitmap *b2 = create_bitmap(b->x, b->y, b->x, RGB24);
+	offset = 0;
+	idct(dct_matrix, &offset, area, b2);
 	SDL_Surface *out = bitmap_to_sdl(b2);
 	SDL_SaveBMP(out, "dct.bmp");
 	return 0;

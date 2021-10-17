@@ -1,16 +1,15 @@
 cmake_minimum_required(VERSION 3.2)
 option(USE_SANITIZERS "sanitizers" ON)
-project(kczp)
+
 if(MSVC)
 	set(CMAKE_C_FLAGS "/Wall")
 	if(${USE_SANITIZERS})
-		set(CMAKE_C_FLAGS_DEBUG_INIT "/fsanitize=address")
+		set(CMAKE_C_FLAGS "/fsanitize=address")
 	endif()
 elseif()
 	set(CMAKE_C_FLAGS "-Wall")
 	set(CMAKE_C_FLAGS "-Wpedantic")
 	if(${USE_SANITIZERS})
-		set(CMAKE_C_FLAGS_DEBUG_INIT "-fsanitize=address,undefined")
 	endif()
 endif()
 file(GLOB image "src/types.c" 
