@@ -20,20 +20,26 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 					pixel.pixel = get_pixel(x + area.x, y + area.y, b);
 					for (u32 c = 0; c < esize; c++) {
 						float normalized = (pixel.channels[c] / 127.5f) - 1.0f;
-						dct_matrix[i * area.w + j + area.w * area.h * c] += normalized * cosf((M_PI / (float)area.w) * (x + 0.5f) * j) * cosf((M_PI / (float)area.h) * (y + 0.5f) * i) / (float)(area.w * area.h) * 4.0f;
+						dct_matrix[i * area.w + j + area.w * area.h * c] += normalized * cosf((M_PI / (float)area.w) * (x + 0.5f) * j) * cosf((M_PI / (float)area.h) * (y + 0.5f) * i) / (float)(area.w * area.h);
 					}
 				}
 			}
 		}
 	}
-	u8 *out = str.ptr + *offset;
+	u16 *out = (u16 *)(str.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
-				out[area.w * area.h * c + area.w * y + x] = dct_matrix[area.w * area.h * c + area.w * y + x] * 0xFF;
+				float fval = dct_matrix[area.w * area.h * c + area.w * y + x];
+				if (fval < -1.0f) {
+					fval = -1.0f;
+				} else if (fval > 1.0f) {
+					fval = 1.0f;
+				}
+				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (511.0f / 2.0f);
 			}
 		}
-		*offset += area.w * area.h * sizeof(u8) * esize;
+		*offset += area.w * area.h * sizeof(u16) * esize;
 	}
 }
 void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
@@ -42,12 +48,12 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	idct_matrix.ptr = alloca(sizeof(float) * area.w * area.h * esize);
 	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
 	memset(idct_matrix.ptr, 0, idct_matrix.size);
-	float *dct_mat = alloca(esize * area.w * area.h);
-	u8 *in = dct_matrix.ptr + *offset;
+	float *dct_mat = alloca(esize * area.w * area.h * sizeof(float));
+	u16 *in = (u16 *)(dct_matrix.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
-				dct_mat[area.w * area.h * c + area.w * y + x] = in[area.w * area.h * c + area.w * y + x] / (float)255;
+				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (511.0f / 2.0f) - 1.0f) * 4.0f;
 			}
 		}
 	}
@@ -113,7 +119,7 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 			set_pixel(x, y, b, px.pixel);
 		}
 	}
-	*offset += sizeof(float) * area.w * area.h * esize;
+	*offset += sizeof(u8) * area.w * area.h * esize;
 }
 int main(int argc, char **argv) {
 	SDL_Surface *surf = IMG_Load(argv[1]);
