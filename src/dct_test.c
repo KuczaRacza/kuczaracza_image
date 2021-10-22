@@ -3,13 +3,15 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_pixels.h>
 #include <SDL2/SDL_surface.h>
+#include <alloca.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 void dct(bitmap *b, rect area, stream str, u32 *offset) {
-	float *dct_matrix = (float *)(str.ptr + *offset);
 	u32 esize = format_bpp(b->format);
+	float *dct_matrix = alloca(sizeof(float) * area.w * area.h * esize);
+	memset(dct_matrix, 0, sizeof(float) * area.w * area.h * esize);
 	for (u32 i = 0; i < area.h; i++) {
 		for (u32 j = 0; j < area.w; j++) {
 			for (u32 y = 0; y < area.h; y++) {
@@ -24,15 +26,32 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 			}
 		}
 	}
-	*offset += area.w * area.h * sizeof(float);
+	u8 *out = str.ptr + *offset;
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				out[area.w * area.h * c + area.w * y + x] = dct_matrix[area.w * area.h * c + area.w * y + x] * 0xFF;
+			}
+		}
+		*offset += area.w * area.h * sizeof(u8) * esize;
+	}
 }
 void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	u32 esize = format_bpp(b->format);
-	stream idct_matrx;
-	idct_matrx.ptr = calloc(sizeof(float), area.w * area.h * esize);
-	idct_matrx.size = sizeof(float) * area.w * area.h * esize;
-	float *pixel = (float *)idct_matrx.ptr;
-	float *dct_mat = (float *)(dct_matrix.ptr + *offset);
+	stream idct_matrix;
+	idct_matrix.ptr = alloca(sizeof(float) * area.w * area.h * esize);
+	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
+	memset(idct_matrix.ptr, 0, idct_matrix.size);
+	float *dct_mat = alloca(esize * area.w * area.h);
+	u8 *in = dct_matrix.ptr + *offset;
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				dct_mat[area.w * area.h * c + area.w * y + x] = in[area.w * area.h * c + area.w * y + x] / (float)255;
+			}
+		}
+	}
+	float *pixel = (float *)idct_matrix.ptr;
 	for (u32 i = 1; i < area.h; i++) {
 		for (u32 j = 1; j < area.w; j++) {
 			for (u32 y = 0; y < area.h; y++) {
