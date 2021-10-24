@@ -7,7 +7,98 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+u32 test_matrix[] =
+		{0, 1, 2, 3,
+		 4, 5, 6, 7,
+		 8, 9, 10, 11,
+		 12, 13, 14, 15};
 
+void xy_to_zigzag(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		dstoffsetcopy(tmp, (u8 *)matrix + index, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
+void zigzag_to_xy(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		srcoffsetcopy(tmp + index, matrix, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
 void dct(bitmap *b, rect area, stream str, u32 *offset) {
 	u32 esize = format_bpp(b->format);
 	float *dct_matrix = alloca(sizeof(float) * area.w * area.h * esize);
@@ -36,7 +127,7 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 				} else if (fval > 1.0f) {
 					fval = 1.0f;
 				}
-				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (511.0f / 2.0f);
+				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (255.0f / 2.0f);
 			}
 		}
 		*offset += area.w * area.h * sizeof(u16) * esize;
@@ -53,7 +144,7 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
-				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (511.0f / 2.0f) - 1.0f) * 4.0f;
+				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (255.0f / 2.0f) - 1.0f) * 4.0f;
 			}
 		}
 	}
@@ -122,6 +213,7 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	*offset += sizeof(u8) * area.w * area.h * esize;
 }
 int main(int argc, char **argv) {
+	/*
 	SDL_Surface *surf = IMG_Load(argv[1]);
 	bitmap *b = sdl_to_bitmap(surf);
 	stream dct_matrix;
@@ -139,5 +231,11 @@ int main(int argc, char **argv) {
 	idct(dct_matrix, &offset, area, b2);
 	SDL_Surface *out = bitmap_to_sdl(b2);
 	SDL_SaveBMP(out, "dct.bmp");
+	*/
+	xy_to_zigzag(test_matrix, sizeof(u32), 8, 2);
+	zigzag_to_xy(test_matrix, sizeof(u32), 8, 2);
+	for (u32 i = 0; i < sizeof(test_matrix) / sizeof(u32); i++) {
+		printf("%u ", test_matrix[i]);
+	}
 	return 0;
 }
