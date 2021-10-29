@@ -7,12 +7,30 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-u32 test_matrix[] =
-		{0, 1, 2, 3,
-		 4, 5, 6, 7,
-		 8, 9, 10, 11,
-		 12, 13, 14, 15};
 
+stream dct_quatization_matrix(u8 sizex, u8 sizey, u8 start, u8 end, u8 offset) {
+
+	stream ret;
+	ret.size = sizex * sizey;
+	ret.ptr = malloc(ret.size);
+	u8 start_end_diff = end - start;
+	for (u32 i = 0; i < sizey; i++) {
+		for (u32 j = 0; j < sizex; j++) {
+			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 3.0f);
+			ret.ptr[i * sizex + j] = start + start_end_diff * distance;
+		}
+	}
+	return ret;
+}
+void dct_quatization(u32 sizex, u32 sizey, u8 *dct, u8 *quants, u8 channels) {
+	for (u32 c = 0; c < channels; c++) {
+		for (u32 i = 0; i < sizey; i++) {
+			for (u32 j = 0; j < sizex; j++) {
+				dct[i * sizex + j + c * sizex * sizey] = (dct[i * sizex + j + c * sizex * sizey] / quants[i * sizex + j]) * quants[i * sizex + j];
+			}
+		}
+	}
+}
 void xy_to_zigzag(void *matrix, u32 esize, u32 sizex, u32 sizey) {
 	u8 *tmp = alloca(esize * sizex * sizey);
 	u8 direction = 0;
@@ -212,10 +230,12 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	}
 	*offset += sizeof(u8) * area.w * area.h * esize;
 }
+
 int main(int argc, char **argv) {
-	/*
+
 	SDL_Surface *surf = IMG_Load(argv[1]);
 	bitmap *b = sdl_to_bitmap(surf);
+
 	stream dct_matrix;
 	dct_matrix.ptr = calloc(b->x * b->y, sizeof(float) * format_bpp(b->format));
 	u32 offset = 0;
@@ -225,17 +245,44 @@ int main(int argc, char **argv) {
 	area.w = b->x;
 	area.h = b->y;
 	dct(b, area, dct_matrix, &offset);
-
+	FILE *f = fopen("prequnat", "wb");
+	fwrite(dct_matrix.ptr, b->x * b->y * 3, 1, f);
+	fclose(f);
 	bitmap *b2 = create_bitmap(b->x, b->y, b->x, RGB24);
+	stream quant = dct_quatization_matrix(b->x, b->y, 1, 30, 0);
+	dct_quatization(b->x, b->x, dct_matrix.ptr, quant.ptr, 3);
+	f = fopen("quant", "wb");
+	fwrite(dct_matrix.ptr, b->x * b->y * 3, 1, f);
+	fclose(f);
+	bitmap *b3 = create_bitmap(b->x, b->y, b->x, RGB24);
+	for (u32 i = 0; i < b->y; i++) {
+		for (u32 j = 0; j < b->x; j++) {
+			u8 abc = quant.ptr[i * b->x + j];
+			union piexl_data data;
+			data.channels[0] = abc;
+			data.channels[1] = abc;
+			data.channels[2] = abc;
+			set_pixel(j, i, b3, data.pixel);
+		}
+	}
 	offset = 0;
+	xy_to_zigzag(dct_matrix.ptr, 1, b->x, b->y);
+	xy_to_zigzag(dct_matrix.ptr + b->x * b->y, 1, b->x, b->y);
+	xy_to_zigzag(dct_matrix.ptr + b->x * b->y * 2, 1, b->x, b->y);
+
+	f = fopen("zigzag", "wb");
+	fwrite(dct_matrix.ptr, b->x * b->y * 3, 1, f);
+	fclose(f);
+	zigzag_to_xy(dct_matrix.ptr, 1, b->x, b->y);
+	zigzag_to_xy(dct_matrix.ptr + b->x * b->y, 1, b->x, b->y);
+	zigzag_to_xy(dct_matrix.ptr + b->x * b->y * 2, 1, b->x, b->y);
+
 	idct(dct_matrix, &offset, area, b2);
+
 	SDL_Surface *out = bitmap_to_sdl(b2);
 	SDL_SaveBMP(out, "dct.bmp");
-	*/
-	xy_to_zigzag(test_matrix, sizeof(u32), 8, 2);
-	zigzag_to_xy(test_matrix, sizeof(u32), 8, 2);
-	for (u32 i = 0; i < sizeof(test_matrix) / sizeof(u32); i++) {
-		printf("%u ", test_matrix[i]);
-	}
+	out = bitmap_to_sdl(b3);
+	SDL_SaveBMP(out, "dct_mat.bmp");
+
 	return 0;
 }
