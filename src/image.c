@@ -746,14 +746,18 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					algo = 0;
 				}
 			}
+			rect quad_rect;
+			quad_rect.x = quad_s * j;
+			quad_rect.y = quad_s * i;
+			quad_rect.w = qx;
+			quad_rect.h = qy;
 
+#if DCT_EXPERIMENTAL
+			algo = 3;
+#endif
 			if (algo == 1) {
 				//encode fullres / subsampled block
-				rect quad_rect;
-				quad_rect.x = quad_s * j;
-				quad_rect.y = quad_s * i;
-				quad_rect.w = qx;
-				quad_rect.h = qy;
+
 #if NOSUBSAMPLING
 				fullsampling(b, quad_rect, ret, &offset);
 #else
@@ -805,7 +809,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
-			} else {
+			} else if (algo == 2) {
 				//prediction mode
 				//sucks for now
 				u32 simillar[3];
@@ -834,6 +838,18 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					u8 val = simillar[c];
 					dstoffsetcopy(ret.ptr, &val, &offset, 1);
 				}
+			} else if (algo == 3) {
+				u32 offset_to_dct = offset;
+				dct(b, quad_rect, ret, &offset);
+				//needs to be changed
+				//quantization matrix should be generated once for each part
+				//i'm leaving this as it is for now
+				stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, 1, 1, 0);
+				dct_quatization(qx, qy, ret.ptr + offset_to_dct, quantization_matrix.ptr, 3);
+				xy_to_zigzag(ret.ptr + offset_to_dct, 1, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy), 1, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 1, qx, qy);
+				free(quantization_matrix.ptr);
 			}
 			u32 pos = i * (x_blocks_size) + j;
 			blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
@@ -887,15 +903,15 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 			u16 pos = i * x_blocks_size + j;
 			u32 bitshift = (pos % 4 * 2);
 			u8 algo = (blokcs.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-
+			rect quad_rect;
+			quad_rect.x = quad_s * j;
+			quad_rect.y = quad_s * i;
+			quad_rect.w = qx;
+			quad_rect.h = qy;
 			if (algo == 1) {
 
 				// block is  wasn't skipped and  other pixels are  copied
-				rect quad_rect;
-				quad_rect.x = quad_s * j;
-				quad_rect.y = quad_s * i;
-				quad_rect.w = qx;
-				quad_rect.h = qy;
+
 #if NOSUBSAMPLING
 				defullsampling(ret, quad_rect, str, &offset);
 #else
@@ -961,7 +977,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 						set_pixel(quad_s * j + k, quad_s * i + l, ret, *(u32 *)&pixel);
 					}
 				}
-			} else {
+			} else if (algo == 2) {
 				//prediction mode
 				u8 weight[3];
 				srcoffsetcopy(weight, str.ptr, &offset, 3);
@@ -983,6 +999,12 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 						set_pixel(quad_s * j + l, quad_s * i + k, ret, out_pixel.pixel);
 					}
 				}
+			} else if (algo == 3) {
+				u32 offset_before_idc = offset;
+				zigzag_to_xy(str.ptr + offset, 1, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy), 1, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy * 2), 1, qx, qy);
+				idct(str, &offset, quad_rect, ret);
 			}
 #if SHOW_BLOCKS == 1
 			u32 color;
@@ -1008,7 +1030,8 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 }
 void free_image(image *img) {
 	for (u32 i = 0; i < img->length; i++) {
-		free(img->parts[i].pixels.ptr);
+		//wtf?
+		//free(img->parts[i].pixels.ptr);
 		free(img->parts[i].blokcs.ptr);
 	}
 	free(img->parts);
@@ -1241,78 +1264,226 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
 		}
 	}
 }
-/*
-void dct(float **DCTMatrix, float **Matrix, u16 qx , u16 qy){
+stream dct_quatization_matrix(u8 sizex, u8 sizey, u8 start, u8 end, u8 offset) {
 
-    int i, j, u, v;
-    for (u = 0; u < N; ++u) {
-        for (v = 0; v < M; ++v) {
-        DCTMatrix[u][v] = 0;
-            for (i = 0; i < N; i++) {
-                for (j = 0; j < M; j++) {
-                    DCTMatrix[u][v] += Matrix[i][j] * cosf(M_PI/((float)N)*(i+1./2.)*u)*cosf(M_PI/((float)M)*(j+1./2.)*v);
-                }               
-            }
-        }
-    }  
- }
-*/
-void dct_block(bitmap *b, rect area, stream out, u32 *offset) {
-	u8 esize = format_bpp(b->format);
-	for (u32 i = 0; i < area.h; i++) {
-		for (u32 j = 0; j < area.w; j++) {
-			float coefficient[4];
-			memset(coefficient, 0, sizeof(float) * esize);
-			for (u32 y = 0; y < area.h; y++) {
-				for (u32 x = 0; x < area.w; x++) {
-					union piexl_data data;
-					data.pixel = get_pixel(x + area.x, y + area.y, b);
-					for (u32 c = 0; c < esize; c++) {
-						coefficient[c] += data.channels[c] * cosf(M_PI / ((float)area.w) * (x + 1. / 2.) * j) * cosf(M_PI / ((float)area.h) * (y + 1. / 2.) * i);
-					}
-				}
+	stream ret;
+	ret.size = sizex * sizey;
+	ret.ptr = malloc(ret.size);
+	u8 start_end_diff = end - start;
+	for (u32 i = 0; i < sizey; i++) {
+		for (u32 j = 0; j < sizex; j++) {
+			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 3.0f);
+			ret.ptr[i * sizex + j] = start + start_end_diff * distance;
+		}
+	}
+	return ret;
+}
+void dct_quatization(u32 sizex, u32 sizey, u8 *dct, u8 *quants, u8 channels) {
+	for (u32 c = 0; c < channels; c++) {
+		for (u32 i = 0; i < sizey; i++) {
+			for (u32 j = 0; j < sizex; j++) {
+				dct[i * sizex + j + c * sizex * sizey] = (dct[i * sizex + j + c * sizex * sizey] / quants[i * sizex + j]) * quants[i * sizex + j];
 			}
-
-			dstoffsetcopy(out.ptr, &coefficient, offset, sizeof(float) * esize);
 		}
 	}
 }
-
-/*
-void idct(float **Matrix, float **DCTMatrix, int N, int M){
-    int i, j, u, v;
-
-    for (u = 0; u < N; ++u) {
-        for (v = 0; v < M; ++v) {
-          Matrix[u][v] = 1/4.*DCTMatrix[0][0];
-          for(i = 1; i < N; i++){
-          Matrix[u][v] += 1/2.*DCTMatrix[i][0];
-           }
-           for(j = 1; j < M; j++){
-          Matrix[u][v] += 1/2.*DCTMatrix[0][j];
-           }
-
-           for (i = 1; i < N; i++) {
-                for (j = 1; j < M; j++) {
-                    Matrix[u][v] += DCTMatrix[i][j] * cosf(M_PI/((float)N)*(u+1./2.)*i)*cosf(M_PI/((float)M)*(v+1./2.)*j);
-                }               
-            }
-        Matrix[u][v] *= 2./((float)N)*2./((float)M);
-        }
-    }  
- }
-*/
-void inverse_dct_block(bitmap *b, rect area, stream in, u32 *offset) {
-	u32 internal_offset = *offset;
-	u8 esize = format_bpp(b->format);
+void xy_to_zigzag(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		dstoffsetcopy(tmp, (u8 *)matrix + index, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
+void zigzag_to_xy(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		srcoffsetcopy(tmp + index, matrix, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
+void dct(bitmap *b, rect area, stream str, u32 *offset) {
+	u32 esize = format_bpp(b->format);
+	float *dct_matrix = alloca(sizeof(float) * area.w * area.h * esize);
+	memset(dct_matrix, 0, sizeof(float) * area.w * area.h * esize);
 	for (u32 i = 0; i < area.h; i++) {
 		for (u32 j = 0; j < area.w; j++) {
 			for (u32 y = 0; y < area.h; y++) {
 				for (u32 x = 0; x < area.w; x++) {
+					union piexl_data pixel;
+					pixel.pixel = get_pixel(x + area.x, y + area.y, b);
 					for (u32 c = 0; c < esize; c++) {
+						float normalized = (pixel.channels[c] / 127.5f) - 1.0f;
+						dct_matrix[i * area.w + j + area.w * area.h * c] += normalized * cosf((M_PI / (float)area.w) * (x + 0.5f) * j) * cosf((M_PI / (float)area.h) * (y + 0.5f) * i) / (float)(area.w * area.h);
 					}
 				}
 			}
 		}
 	}
+	u8 *out = (u8 *)(str.ptr + *offset);
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				float fval = dct_matrix[area.w * area.h * c + area.w * y + x];
+				if (fval < -1.0f) {
+					fval = -1.0f;
+				} else if (fval > 1.0f) {
+					fval = 1.0f;
+				}
+				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (255.0f / 2.0f);
+			}
+		}
+	}
+	u32 off = area.w * area.h * sizeof(u8) * esize;
+	*offset += off;
+}
+void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
+	u32 esize = format_bpp(b->format);
+	stream idct_matrix;
+	idct_matrix.ptr = alloca(sizeof(float) * area.w * area.h * esize);
+	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
+	memset(idct_matrix.ptr, 0, idct_matrix.size);
+	float *dct_mat = alloca(esize * area.w * area.h * sizeof(float));
+	u8 *in = (u8 *)(dct_matrix.ptr + *offset);
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (255.0f / 2.0f) - 1.0f) * 4.0f;
+			}
+		}
+	}
+	float *pixel = (float *)idct_matrix.ptr;
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 j = 1; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					for (u32 c = 0; c < esize; c++) {
+						float normalized = dct_mat[i * area.w + j + area.w * area.h * c];
+						normalized = normalized * cosf((M_PI / area.w) * (x + 0.5f) * j) * cosf((M_PI / area.h) * (y + 0.5f) * i);
+						pixel[y * area.w + x + area.w * area.h * c] += normalized;
+					}
+				}
+			}
+		}
+	}
+
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i * area.w + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.h) * (y + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
+			}
+		}
+	}
+	for (u32 i = 1; i < area.w; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.w) * (x + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
+			}
+		}
+	}
+
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = dct_mat[area.w * area.h * c];
+				normalized = normalized;
+				pixel[i * area.w + j + area.w * area.h * c] += 0.25f * normalized;
+			}
+		}
+	}
+	for (u32 y = 0; y < area.h; y++) {
+		for (u32 x = 0; x < area.w; x++) {
+			union piexl_data px;
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = (pixel[y * area.w + x + area.w * area.h * c] + 1.0f) * 127.5f;
+				if (normalized > 255) {
+					normalized = 255;
+				} else if (normalized < 0) {
+					normalized = 0;
+				}
+				px.channels[c] = normalized;
+			}
+			set_pixel(x + area.x , y +area.y, b, px.pixel);
+		}
+	}
+	*offset += sizeof(u8) * area.w * area.h * esize;
 }

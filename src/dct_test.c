@@ -148,8 +148,9 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (255.0f / 2.0f);
 			}
 		}
-		*offset += area.w * area.h * sizeof(u16) * esize;
 	}
+		*offset += area.w * area.h * sizeof(u8) * esize;
+
 }
 void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	u32 esize = format_bpp(b->format);

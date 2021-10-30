@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.2)
 project(KCZI)
 
 option(USE_SANITIZERS "sanitizers" ON)
+#set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
 
 if(MSVC)
 	set(CMAKE_C_FLAGS "/Wall")
@@ -13,6 +14,7 @@ elseif()
 	set(CMAKE_C_FLAGS "-Wall")
 	set(CMAKE_C_FLAGS "-Wpedantic")
 	if(${USE_SANITIZERS})
+	set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
 	endif()
 endif()
 file(GLOB image "src/types.c" 
@@ -21,14 +23,14 @@ file(GLOB image "src/types.c"
 add_executable(enc "src/enc.c")
 add_executable(dec "src/dec.c")
 add_executable(edges "src/edges_detection.c")
-add_executable(dct "src/dct_test.c")
+add_executable(dct "src/dct_test.c" )
 
 add_library( kczi  SHARED ${image})
 
 target_sources(enc PUBLIC ${image})
 target_sources(dec PUBLIC ${image})
 target_sources(edges PUBLIC ${image})
-target_sources(dct PUBLIC ${image})
+target_sources(dct PUBLIC "src/types.c" "src/iofile.c" )
 
 
 if(UNIX)
