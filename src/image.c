@@ -4,6 +4,7 @@
 #include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_pixels.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -634,7 +635,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 	// pixels are translated form bitamp into array where some blocks are skipped
 	stream ret;
 	u32 esize = format_bpp(b->format);
-	ret.size = b->x * b->y * esize;
+	ret.size = b->x * b->y * esize * 2;
 	ret.ptr = malloc(ret.size);
 	u32 offset = 0;
 	//checks if quad size is bigger than region
@@ -676,40 +677,46 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 						u32 index = ((i * quad_s + k) + area.y) * img->size_x +
 												(j * quad_s + l) + area.x;
 						u32 pixel_edge = img->edges_map.ptr[index];
-						if (pixel_edge > avg_edges) {
-							pixel_edge -= avg_edges;
-							difference_sum += powf(pixel_edge, 3.0f);
+						if (pixel_edge / 4 > avg_edges) {
+							pixel_edge -= avg_edges / 4;
+						}
+						difference_sum += powf(pixel_edge, 3.0f);
+					}
+				}
+				difference_sum = difference_sum * 18000 / (b->x * b->y);
+
+				u32 min_channel[4];
+				u32 max_channel[4];
+				memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
+				memset(max_channel, 0x0, sizeof(u32) * 4);
+				for (u32 k = 0; k < qy; k++) {
+					for (u32 l = 0; l < qx; l++) {
+						u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
+
+						for (u32 m = 0; m < esize; m++) {
+							u8 *value = (u8 *)(&pixel) + m;
+							if (*value > max_channel[m]) {
+								max_channel[m] = *value;
+							}
+							if (*value < min_channel[m]) {
+								min_channel[m] = *value;
+							}
 						}
 					}
 				}
-				difference_sum = difference_sum * 800 / (b->x * b->y);
 
-				if (difference_sum <
-								threshold + threshold * avg_edges * avg_edges / 40 &&
-						avg_edges < 60) {
+				u32 biggest_difference = 0;
+				for (u32 m = 0; m < esize; m++) {
+					u32 this_difference = max_channel[m] - min_channel[m];
+					if (this_difference > biggest_difference) {
+						biggest_difference = this_difference;
+					}
+				}
+
+				if (difference_sum < threshold && biggest_difference < threshold) {
 					algo = 0;
 				} else {
-					if (i > 0 && j > 0 &&
-							difference_sum <
-									threshold + threshold * avg_edges * avg_edges / 40) {
-						u16 pos = i * x_blocks_size + j - 1;
-						u32 bitshift = (pos % 4 * 2);
-						u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-						pos = (i - 1) * x_blocks_size + j;
-						bitshift = (pos % 4 * 2);
-						u8 up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-						if (up_block == 1 && left_block == 1) {
-
-							algo = 2;
-#if NOPREDICTION
-							algo = 1;
-#endif
-						} else {
-							algo = 1;
-						}
-					} else {
-						algo = 1;
-					}
+					algo = 3;
 				}
 
 			} else {
@@ -844,11 +851,11 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				//needs to be changed
 				//quantization matrix should be generated once for each part
 				//i'm leaving this as it is for now
-				stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, 1, 1, 0);
-				dct_quatization(qx, qy, ret.ptr + offset_to_dct, quantization_matrix.ptr, 3);
-				xy_to_zigzag(ret.ptr + offset_to_dct, 1, qx, qy);
-				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy), 1, qx, qy);
-				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 1, qx, qy);
+				stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, 64, 8192, 0);
+				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3);
+				xy_to_zigzag(ret.ptr + offset_to_dct, 2, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 2, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 4, 2, qx, qy);
 				free(quantization_matrix.ptr);
 			}
 			u32 pos = i * (x_blocks_size) + j;
@@ -868,7 +875,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 	// size of pixel
 	u32 esize = format_bpp(format);
 	// reallocating output stream to avoid memory safety issues if file is corrupted
-	str.ptr = realloc(str.ptr, size.w * size.h * esize);
+	str.ptr = realloc(str.ptr, size.w * size.h * esize * 2);
 	// index of written last byte in stream
 	u32 offset = 0;
 	u32 x_blocks_size = ret->x / quad_s;
@@ -1001,9 +1008,9 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 				}
 			} else if (algo == 3) {
 				u32 offset_before_idc = offset;
-				zigzag_to_xy(str.ptr + offset, 1, qx, qy);
-				zigzag_to_xy(str.ptr + offset + (qx * qy), 1, qx, qy);
-				zigzag_to_xy(str.ptr + offset + (qx * qy * 2), 1, qx, qy);
+				zigzag_to_xy(str.ptr + offset, 2, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy) * 2, 2, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy * 4), 2, qx, qy);
 				idct(str, &offset, quad_rect, ret);
 			}
 #if SHOW_BLOCKS == 1
@@ -1264,21 +1271,22 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
 		}
 	}
 }
-stream dct_quatization_matrix(u8 sizex, u8 sizey, u8 start, u8 end, u8 offset) {
+stream dct_quatization_matrix(u8 sizex, u8 sizey, u16 start, u16 end, u16 offset) {
 
 	stream ret;
-	ret.size = sizex * sizey;
+	ret.size = sizex * sizey * 2;
 	ret.ptr = malloc(ret.size);
 	u8 start_end_diff = end - start;
+	u16 *arr = (u16 *)ret.ptr;
 	for (u32 i = 0; i < sizey; i++) {
 		for (u32 j = 0; j < sizex; j++) {
-			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 3.0f);
-			ret.ptr[i * sizex + j] = start + start_end_diff * distance;
+			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 2.0f);
+			arr[i * sizex + j] = start + start_end_diff * distance;
 		}
 	}
 	return ret;
 }
-void dct_quatization(u32 sizex, u32 sizey, u8 *dct, u8 *quants, u8 channels) {
+void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels) {
 	for (u32 c = 0; c < channels; c++) {
 		for (u32 i = 0; i < sizey; i++) {
 			for (u32 j = 0; j < sizex; j++) {
@@ -1391,7 +1399,7 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 			}
 		}
 	}
-	u8 *out = (u8 *)(str.ptr + *offset);
+	u16 *out = (u16 *)(str.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
@@ -1401,11 +1409,11 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 				} else if (fval > 1.0f) {
 					fval = 1.0f;
 				}
-				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (255.0f / 2.0f);
+				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (UINT16_MAX / 2.0f);
 			}
 		}
 	}
-	u32 off = area.w * area.h * sizeof(u8) * esize;
+	u32 off = area.w * area.h * sizeof(u16) * esize;
 	*offset += off;
 }
 void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
@@ -1415,11 +1423,11 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
 	memset(idct_matrix.ptr, 0, idct_matrix.size);
 	float *dct_mat = alloca(esize * area.w * area.h * sizeof(float));
-	u8 *in = (u8 *)(dct_matrix.ptr + *offset);
+	u16 *in = (u16 *)(dct_matrix.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
-				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (255.0f / 2.0f) - 1.0f) * 4.0f;
+				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (UINT16_MAX / 2.0f) - 1.0f) * 4.0f;
 			}
 		}
 	}
@@ -1482,8 +1490,8 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 				}
 				px.channels[c] = normalized;
 			}
-			set_pixel(x + area.x , y +area.y, b, px.pixel);
+			set_pixel(x + area.x, y + area.y, b, px.pixel);
 		}
 	}
-	*offset += sizeof(u8) * area.w * area.h * esize;
+	*offset += sizeof(u16) * area.w * area.h * esize;
 }

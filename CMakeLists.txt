@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.2)
 
 project(KCZI)
 
-option(USE_SANITIZERS "sanitizers" ON)
+option(USE_SANITIZERS "sanitizers" OFF)
 #set(CMAKE_C_FLAGS "-fsanitize=address,undefined")
 
 if(MSVC)
@@ -30,7 +30,7 @@ add_library( kczi  SHARED ${image})
 target_sources(enc PUBLIC ${image})
 target_sources(dec PUBLIC ${image})
 target_sources(edges PUBLIC ${image})
-target_sources(dct PUBLIC "src/types.c" "src/iofile.c" )
+target_sources(dct PUBLIC "./src/types.c" "./src/iofile.c" )
 
 
 if(UNIX)
