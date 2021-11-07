@@ -26,23 +26,30 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
-							u32 block_color_sensitivity, u32 complexity) {
+image *encode(bitmap *raw, encode_args args) {
 	// allocate struct
 	image *img = (image *)malloc(sizeof(image));
 	// set basic info
 	img->format = raw->format;
 	img->size_x = raw->x;
 	img->size_y = raw->y;
-	img->blok_size = max_block_size;
-	img->color_quant = color_reduction;
-	img->color_sensitivity = block_color_sensitivity;
+	img->blok_size = args.max_block_size;
+	img->color_quant = args.color_reduction;
+	img->color_sensitivity = args.color_reduction;
 	// copy bitmap to avoid altering input data
 	bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
 	//determines mode
 	//dictronaries/index mode for small images
 	//standart mode for bigger images
-	if (copy->x > SMALL_IMAGE_LIMIT || copy->y > SMALL_IMAGE_LIMIT && copy->format != RGBA32) {
+	if (args.encode_method == 0) {
+		if ((copy->x < SMALL_IMAGE_LIMIT && copy->y < SMALL_IMAGE_LIMIT) && copy->format != RGBA32) {
+			args.encode_method = 1;
+		} else {
+			args.encode_method = 2;
+		}
+	}
+
+	if (args.encode_method == 1) {
 		//converts to yuv44
 		copy->format = YUV444;
 		bitmap *yuv_bitmap = rgb_to_yuv(copy);
@@ -50,7 +57,7 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 		copy = yuv_bitmap;
 		img->format = YUV444;
 		edeges_map(img, copy);
-	} else {
+	} else if (args.encode_method == 2) {
 		if (copy->format == RGBA32) {
 			img->format = DICTRGBA;
 		} else {
@@ -60,12 +67,12 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 
 	// reduce colors
 	//should only be use in index mode
-	if (color_reduction > 1) {
-		linear_quantization(copy, color_reduction, 0);
+	if (args.color_reduction > 1) {
+		linear_quantization(copy, args.color_reduction, 0);
 	}
 
 	// compress
-	rectangle_tree(img, copy, max_block_size, block_color_sensitivity, complexity);
+	rectangle_tree(img, copy, args.max_block_size, args.block_color_sensitivity, args.complexity);
 	free_bitmap(copy);
 
 	return img;
@@ -151,6 +158,8 @@ stream seralize(image *img) {
 						 sizeof(u16) +	 // block sensitivity
 						 sizeof(u32) +	 // length
 						 sizeof(u32) +	 // dict length
+						 sizeof(u16) +	 // dct quantization start
+						 sizeof(u16) +	 // dct quantization end
 														 // foreach part of image
 						 (sizeof(u16) +	 // x part
 							sizeof(u16) +	 // y part
@@ -623,6 +632,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 								 rect area) {
 	u64 avg_edges = 0;
+	stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, img->dct_start, img->dct_end, 0);
 	if (b->format == YUV444) {
 		for (u32 i = area.y; i < area.y + area.h; i++) {
 			for (u32 j = area.x; j < area.x + area.w; j++) {
@@ -848,20 +858,17 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 			} else if (algo == 3) {
 				u32 offset_to_dct = offset;
 				dct(b, quad_rect, ret, &offset);
-				//needs to be changed
-				//quantization matrix should be generated once for each part
-				//i'm leaving this as it is for now
-				stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, 64, 8192, 0);
+
 				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3);
 				xy_to_zigzag(ret.ptr + offset_to_dct, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 4, 2, qx, qy);
-				free(quantization_matrix.ptr);
 			}
 			u32 pos = i * (x_blocks_size) + j;
 			blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
 		}
 	}
+	free(quantization_matrix.ptr);
 
 	ret.size = offset;
 	// resize array to adjust to stripped data

@@ -8,9 +8,13 @@
 int main(int argc, char **argv) {
 	char *import_path = NULL;
 	char *export_path = NULL;
-	u32 qu = 4;
-	u32 bl = 16;
-	u32 se = 28;
+	encode_args args;
+	args.encode_method = 0;
+	args.block_color_sensitivity = 30;
+	args.color_reduction = 0;
+	args.complexity = 2;
+	args.dct_quant_max = 2048;
+	args.dct_quant_min = 4;
 
 	for (uint16_t i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) {
@@ -31,26 +35,56 @@ int main(int argc, char **argv) {
 			import_path = argv[i + 1];
 			i++;
 		} else if (strcmp(argv[i], "-q") == 0) {
-			qu = atoi(argv[i + 1]);
-
-			if (qu > 255 || qu < 0) {
-				printf("inncorect value -q %i \n", qu);
+			args.color_reduction = atoi(argv[i + 1]);
+			if (args.color_reduction > 255 || args.color_reduction < 0) {
+				printf("inncorect value -q %i \n", args.color_reduction);
 				return 0;
 			}
 			i++;
 		} else if (strcmp(argv[i], "-b") == 0) {
-
-			bl = atoi(argv[i + 1]);
-			if (bl > 500 || bl < 1) {
-				printf("inncorect value -b %i \n", bl);
+			args.max_block_size = atoi(argv[i + 1]);
+			if (args.max_block_size > 500 || args.max_block_size < 1) {
+				printf("inncorect value -b %i \n", args.max_block_size);
 				return 0;
 			}
 			i++;
 		} else if (strcmp(argv[i], "-s") == 0) {
-			se = atoi(argv[i + 1]);
+			args.block_color_sensitivity = atoi(argv[i + 1]);
 
-			if (se > 5000 || se < 0) {
-				printf("inncorect value -s %i \n", se);
+			if (args.block_color_sensitivity > 500 || args.block_color_sensitivity < 0) {
+				printf("inncorect value -s %i \n", args.block_color_sensitivity);
+				return 0;
+			}
+			i++;
+		} else if (strcmp(argv[i], "-m") == 0) {
+			args.encode_method = atoi(argv[i + 1]);
+
+			if (args.block_color_sensitivity > 2 || args.encode_method < 0) {
+				printf("inncorect value -m %i \n", args.encode_method);
+				return 0;
+			}
+			i++;
+		} else if (strcmp(argv[i], "-c") == 0) {
+			args.complexity = atoi(argv[i + 1]);
+
+			if (args.complexity > 2 || args.complexity < 0) {
+				printf("inncorect value -c %i \n", args.encode_method);
+				return 0;
+			}
+			i++;
+		} else if (strcmp(argv[i], "--dct-min") == 0) {
+			args.dct_quant_min = atoi(argv[i + 1]);
+
+			if (args.dct_quant_min > 8192 || args.dct_quant_min < 0) {
+				printf("inncorect value --dct-min %i \n", args.encode_method);
+				return 0;
+			}
+			i++;
+		} else if (strcmp(argv[i], "--dct-max") == 0) {
+			args.dct_quant_max = atoi(argv[i + 1]);
+
+			if (args.dct_quant_max > 8192 || args.dct_quant_max < 0) {
+				printf("inncorect value --dct-max %i \n", args.encode_method);
 				return 0;
 			}
 			i++;
@@ -69,7 +103,8 @@ int main(int argc, char **argv) {
 	}
 	SDL_Surface *surf = IMG_Load(import_path);
 	bitmap *b = sdl_to_bitmap(surf);
-	image *img = encode(b, bl, qu, se, 2);
+
+	image *img = encode(b, args);
 	u64 decompressed_size;
 	stream str = seralize(img);
 	write(&str, export_path);

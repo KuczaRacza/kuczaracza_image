@@ -1,6 +1,6 @@
 #pragma once
 #include "types.h"
-#define VERSION 5
+#define VERSION 6
 #define MAGIC "KCZI"
 struct dict8 {
 	u8 size;
@@ -35,14 +35,26 @@ struct image {
 	dict8 *dicts;
 	stream edges_map;
 	u32 avg_edges;
-	stream tree;
+	u16 dct_start;
+	u16 dct_end;
 };
 typedef struct image image;
-
-
+struct encode_args {
+	// 0 standard
+	// 1 force yuv  
+	// 2 force  index
+	u8  encode_method;
+	u32 max_block_size;
+	u32 color_reduction;
+	u32 block_color_sensitivity;
+	u32 complexity;
+	u32 dct_quant_min;
+	u32 dct_quant_max;
+};
+typedef struct encode_args encode_args;
 
 // encodes whole image from bitmap
-image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction, u32 block_color_sensitivity, u32 complexity);
+image *encode(bitmap *raw, encode_args args );
 // decode whole image to bitmap
 bitmap *decode(image *img);
 // writes image into array of pixels
