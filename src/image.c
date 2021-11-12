@@ -36,6 +36,8 @@ image *encode(bitmap *raw, encode_args args) {
 	img->blok_size = args.max_block_size;
 	img->color_quant = args.color_reduction;
 	img->color_sensitivity = args.color_reduction;
+	img->dct_start = args.dct_quant_min;
+	img->dct_end = args.dct_quant_max;
 	// copy bitmap to avoid altering input data
 	bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
 	//determines mode
@@ -120,7 +122,7 @@ bitmap *decode(image *img) {
 		quad /= 2;
 		quad *= 2;
 		// writes decompress to bitmap pixels
-		bitmap *btmp = recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs);
+		bitmap *btmp = recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs, img);
 		// copying pixels
 		for (u32 j = 0; j < img->parts[i].h; j++) {
 			for (u32 k = 0; k < img->parts[i].w; k++) {
@@ -192,6 +194,8 @@ stream seralize(image *img) {
 	dstoffsetcopy(str.ptr, &img->color_sensitivity, &offset, sizeof(u16));
 	dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
 	dstoffsetcopy(str.ptr, &img->dicts_length, &offset, sizeof(u32));
+	dstoffsetcopy(str.ptr, &img->dct_start, &offset, sizeof(u16));
+	dstoffsetcopy(str.ptr, &img->dct_end, &offset, sizeof(u16));
 	// copying each part
 	for (u32 i = 0; i < img->length; i++) {
 		dstoffsetcopy(str.ptr, &img->parts[i].x, &offset, sizeof(u16));
@@ -242,6 +246,9 @@ image *deserialize(stream compressed_str) {
 	srcoffsetcopy(&img->color_sensitivity, str.ptr, &offset, sizeof(u16));
 	srcoffsetcopy(&img->length, str.ptr, &offset, sizeof(u32));
 	srcoffsetcopy(&img->dicts_length, str.ptr, &offset, sizeof(u32));
+	srcoffsetcopy(&img->dct_start, str.ptr, &offset, sizeof(u16));
+	srcoffsetcopy(&img->dct_end, str.ptr, &offset, sizeof(u16));
+
 	// size of each pixel
 	u32 esize = format_bpp(img->format);
 	img->parts = malloc(sizeof(region) * img->length);
@@ -859,7 +866,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				u32 offset_to_dct = offset;
 				dct(b, quad_rect, ret, &offset);
 
-				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3);
+				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3, quad_s * 2, quad_s * 2);
 				xy_to_zigzag(ret.ptr + offset_to_dct, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 4, 2, qx, qy);
@@ -876,7 +883,9 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 	return ret;
 }
 bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
-											 stream blokcs) {
+											 stream blokcs, image *img) {
+	stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, img->dct_start, img->dct_end, 0);
+
 	// translate form array to bitmap  and interpolate missing quds
 	bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
 	// size of pixel
@@ -1018,6 +1027,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 				zigzag_to_xy(str.ptr + offset, 2, qx, qy);
 				zigzag_to_xy(str.ptr + offset + (qx * qy) * 2, 2, qx, qy);
 				zigzag_to_xy(str.ptr + offset + (qx * qy * 4), 2, qx, qy);
+				dct_de_quatization(qx, qy, (u16 *)(str.ptr + offset_before_idc), (u16 *)quantization_matrix.ptr, esize, quad_s * 2, quad_s * 2);
 				idct(str, &offset, quad_rect, ret);
 			}
 #if SHOW_BLOCKS == 1
@@ -1039,6 +1049,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 #endif
 		}
 	}
+	free(quantization_matrix.ptr);
 	free(str.ptr);
 	return ret;
 }
@@ -1287,17 +1298,28 @@ stream dct_quatization_matrix(u8 sizex, u8 sizey, u16 start, u16 end, u16 offset
 	u16 *arr = (u16 *)ret.ptr;
 	for (u32 i = 0; i < sizey; i++) {
 		for (u32 j = 0; j < sizex; j++) {
-			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 2.0f);
+			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 1.8f);
 			arr[i * sizex + j] = start + start_end_diff * distance;
 		}
 	}
 	return ret;
 }
-void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels) {
+void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
 	for (u32 c = 0; c < channels; c++) {
 		for (u32 i = 0; i < sizey; i++) {
 			for (u32 j = 0; j < sizex; j++) {
-				dct[i * sizex + j + c * sizex * sizey] = (dct[i * sizex + j + c * sizex * sizey] / quants[i * sizex + j]) * quants[i * sizex + j];
+				u32 quant = quants[(matrix_h * i / sizey) * matrix_w + (matrix_w * j / sizex)];
+				dct[i * sizex + j + c * sizex * sizey] = roundf(dct[i * sizex + j + c * sizex * sizey] / (float)quant);
+			}
+		}
+	}
+}
+void dct_de_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
+	for (u32 c = 0; c < channels; c++) {
+		for (u32 i = 0; i < sizey; i++) {
+			for (u32 j = 0; j < sizex; j++) {
+				u32 quant = quants[(matrix_h * i / sizey) * matrix_w + (matrix_w * j / sizex)];
+				dct[i * sizex + j + c * sizex * sizey] = dct[i * sizex + j + c * sizex * sizey] * quant;
 			}
 		}
 	}

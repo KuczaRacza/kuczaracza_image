@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
 		} else if (strcmp(argv[i], "-m") == 0) {
 			args.encode_method = atoi(argv[i + 1]);
 
-			if (args.block_color_sensitivity > 2 || args.encode_method < 0) {
+			if (args.encode_method > 3 || args.encode_method < 0) {
 				printf("inncorect value -m %i \n", args.encode_method);
 				return 0;
 			}
