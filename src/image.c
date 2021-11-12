@@ -4,6 +4,7 @@
 #include <SDL2/SDL_keycode.h>
 #include <SDL2/SDL_pixels.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,23 +26,32 @@
 #define RGB2U(R, G, B) CLIP(((-38 * (R)-74 * (G) + 112 * (B) + 128) >> 8) + 128)
 #define RGB2V(R, G, B) CLIP(((112 * (R)-94 * (G)-18 * (B) + 128) >> 8) + 128)
 
-image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
-							u32 block_color_sensitivity, u32 complexity) {
+image *encode(bitmap *raw, encode_args args) {
 	// allocate struct
 	image *img = (image *)malloc(sizeof(image));
 	// set basic info
 	img->format = raw->format;
 	img->size_x = raw->x;
 	img->size_y = raw->y;
-	img->blok_size = max_block_size;
-	img->color_quant = color_reduction;
-	img->color_sensitivity = block_color_sensitivity;
+	img->blok_size = args.max_block_size;
+	img->color_quant = args.color_reduction;
+	img->color_sensitivity = args.color_reduction;
+	img->dct_start = args.dct_quant_min;
+	img->dct_end = args.dct_quant_max;
 	// copy bitmap to avoid altering input data
 	bitmap *copy = copy_bitmap(raw, 0, 0, raw->x, raw->y);
 	//determines mode
 	//dictronaries/index mode for small images
 	//standart mode for bigger images
-	if (copy->x > SMALL_IMAGE_LIMIT || copy->y > SMALL_IMAGE_LIMIT && copy->format != RGBA32) {
+	if (args.encode_method == 0) {
+		if ((copy->x < SMALL_IMAGE_LIMIT && copy->y < SMALL_IMAGE_LIMIT) && copy->format != RGBA32) {
+			args.encode_method = 1;
+		} else {
+			args.encode_method = 2;
+		}
+	}
+
+	if (args.encode_method == 1) {
 		//converts to yuv44
 		copy->format = YUV444;
 		bitmap *yuv_bitmap = rgb_to_yuv(copy);
@@ -49,7 +59,7 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 		copy = yuv_bitmap;
 		img->format = YUV444;
 		edeges_map(img, copy);
-	} else {
+	} else if (args.encode_method == 2) {
 		if (copy->format == RGBA32) {
 			img->format = DICTRGBA;
 		} else {
@@ -59,12 +69,12 @@ image *encode(bitmap *raw, u32 max_block_size, u32 color_reduction,
 
 	// reduce colors
 	//should only be use in index mode
-	if (color_reduction > 1) {
-		linear_quantization(copy, color_reduction, 0);
+	if (args.color_reduction > 1) {
+		linear_quantization(copy, args.color_reduction, 0);
 	}
 
 	// compress
-	rectangle_tree(img, copy, max_block_size, block_color_sensitivity, complexity);
+	rectangle_tree(img, copy, args.max_block_size, args.block_color_sensitivity, args.complexity);
 	free_bitmap(copy);
 
 	return img;
@@ -91,7 +101,7 @@ bitmap *decode(image *img) {
 		} else {
 			//walkaround
 			//needs  to be changed
-			//avoids double free
+			//avoids float free
 			//function recrate_quads reallocs
 			//and makes img->parts[i].pixels.ptr invalid
 			str = img->parts[i].pixels;
@@ -112,7 +122,7 @@ bitmap *decode(image *img) {
 		quad /= 2;
 		quad *= 2;
 		// writes decompress to bitmap pixels
-		bitmap *btmp = recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs);
+		bitmap *btmp = recreate_quads(str, quad, part_rect, img->format, img->parts[i].blokcs, img);
 		// copying pixels
 		for (u32 j = 0; j < img->parts[i].h; j++) {
 			for (u32 k = 0; k < img->parts[i].w; k++) {
@@ -150,6 +160,8 @@ stream seralize(image *img) {
 						 sizeof(u16) +	 // block sensitivity
 						 sizeof(u32) +	 // length
 						 sizeof(u32) +	 // dict length
+						 sizeof(u16) +	 // dct quantization start
+						 sizeof(u16) +	 // dct quantization end
 														 // foreach part of image
 						 (sizeof(u16) +	 // x part
 							sizeof(u16) +	 // y part
@@ -182,6 +194,8 @@ stream seralize(image *img) {
 	dstoffsetcopy(str.ptr, &img->color_sensitivity, &offset, sizeof(u16));
 	dstoffsetcopy(str.ptr, &img->length, &offset, sizeof(u32));
 	dstoffsetcopy(str.ptr, &img->dicts_length, &offset, sizeof(u32));
+	dstoffsetcopy(str.ptr, &img->dct_start, &offset, sizeof(u16));
+	dstoffsetcopy(str.ptr, &img->dct_end, &offset, sizeof(u16));
 	// copying each part
 	for (u32 i = 0; i < img->length; i++) {
 		dstoffsetcopy(str.ptr, &img->parts[i].x, &offset, sizeof(u16));
@@ -232,6 +246,9 @@ image *deserialize(stream compressed_str) {
 	srcoffsetcopy(&img->color_sensitivity, str.ptr, &offset, sizeof(u16));
 	srcoffsetcopy(&img->length, str.ptr, &offset, sizeof(u32));
 	srcoffsetcopy(&img->dicts_length, str.ptr, &offset, sizeof(u32));
+	srcoffsetcopy(&img->dct_start, str.ptr, &offset, sizeof(u16));
+	srcoffsetcopy(&img->dct_end, str.ptr, &offset, sizeof(u16));
+
 	// size of each pixel
 	u32 esize = format_bpp(img->format);
 	img->parts = malloc(sizeof(region) * img->length);
@@ -432,7 +449,7 @@ void rectangle_tree(image *img, bitmap *raw, u32 max_block_size,
 			if (dict_len > 0 && complexity > 0) {
 				u8 merged = 0;
 				//tries to merge dicts
-				//cost a lot of time
+				//cosft a lot of time
 				for (i32 j = dict_len; j > 0; j--) {
 					if (img->dicts[dict_len - j].size + img->dicts[dict_len].size < 300) {
 						if (merge_dicts(&img->dicts[dict_len - j], &img->dicts[dict_len],
@@ -622,6 +639,7 @@ void create_rect(vector *rects, bitmap *raw, rect area, u8 depth, u8 format,
 stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 								 rect area) {
 	u64 avg_edges = 0;
+	stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, img->dct_start, img->dct_end, 0);
 	if (b->format == YUV444) {
 		for (u32 i = area.y; i < area.y + area.h; i++) {
 			for (u32 j = area.x; j < area.x + area.w; j++) {
@@ -634,7 +652,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 	// pixels are translated form bitamp into array where some blocks are skipped
 	stream ret;
 	u32 esize = format_bpp(b->format);
-	ret.size = b->x * b->y * esize;
+	ret.size = b->x * b->y * esize * 2;
 	ret.ptr = malloc(ret.size);
 	u32 offset = 0;
 	//checks if quad size is bigger than region
@@ -676,40 +694,46 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 						u32 index = ((i * quad_s + k) + area.y) * img->size_x +
 												(j * quad_s + l) + area.x;
 						u32 pixel_edge = img->edges_map.ptr[index];
-						if (pixel_edge > avg_edges) {
-							pixel_edge -= avg_edges;
-							difference_sum += powf(pixel_edge, 3.0f);
+						if (pixel_edge / 4 > avg_edges) {
+							pixel_edge -= avg_edges / 4;
+						}
+						difference_sum += powf(pixel_edge, 3.0f);
+					}
+				}
+				difference_sum = difference_sum * 18000 / (b->x * b->y);
+
+				u32 min_channel[4];
+				u32 max_channel[4];
+				memset(min_channel, 0xFFFFFFFF, sizeof(u32) * 4);
+				memset(max_channel, 0x0, sizeof(u32) * 4);
+				for (u32 k = 0; k < qy; k++) {
+					for (u32 l = 0; l < qx; l++) {
+						u32 pixel = get_pixel(j * quad_s + l, i * quad_s + k, b);
+
+						for (u32 m = 0; m < esize; m++) {
+							u8 *value = (u8 *)(&pixel) + m;
+							if (*value > max_channel[m]) {
+								max_channel[m] = *value;
+							}
+							if (*value < min_channel[m]) {
+								min_channel[m] = *value;
+							}
 						}
 					}
 				}
-				difference_sum = difference_sum * 800 / (b->x * b->y);
 
-				if (difference_sum <
-								threshold + threshold * avg_edges * avg_edges / 40 &&
-						avg_edges < 60) {
+				u32 biggest_difference = 0;
+				for (u32 m = 0; m < esize; m++) {
+					u32 this_difference = max_channel[m] - min_channel[m];
+					if (this_difference > biggest_difference) {
+						biggest_difference = this_difference;
+					}
+				}
+
+				if (difference_sum < threshold && biggest_difference < threshold) {
 					algo = 0;
 				} else {
-					if (i > 0 && j > 0 &&
-							difference_sum <
-									threshold + threshold * avg_edges * avg_edges / 40) {
-						u16 pos = i * x_blocks_size + j - 1;
-						u32 bitshift = (pos % 4 * 2);
-						u8 left_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-						pos = (i - 1) * x_blocks_size + j;
-						bitshift = (pos % 4 * 2);
-						u8 up_block = (blocks.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-						if (up_block == 1 && left_block == 1) {
-
-							algo = 2;
-#if NOPREDICTION
-							algo = 1;
-#endif
-						} else {
-							algo = 1;
-						}
-					} else {
-						algo = 1;
-					}
+					algo = 3;
 				}
 
 			} else {
@@ -746,14 +770,18 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					algo = 0;
 				}
 			}
+			rect quad_rect;
+			quad_rect.x = quad_s * j;
+			quad_rect.y = quad_s * i;
+			quad_rect.w = qx;
+			quad_rect.h = qy;
 
+#if DCT_EXPERIMENTAL
+			algo = 3;
+#endif
 			if (algo == 1) {
 				//encode fullres / subsampled block
-				rect quad_rect;
-				quad_rect.x = quad_s * j;
-				quad_rect.y = quad_s * i;
-				quad_rect.w = qx;
-				quad_rect.h = qy;
+
 #if NOSUBSAMPLING
 				fullsampling(b, quad_rect, ret, &offset);
 #else
@@ -805,7 +833,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				dstoffsetcopy(ret.ptr, &cr[1], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[2], &offset, esize);
 				dstoffsetcopy(ret.ptr, &cr[3], &offset, esize);
-			} else {
+			} else if (algo == 2) {
 				//prediction mode
 				//sucks for now
 				u32 simillar[3];
@@ -834,11 +862,20 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					u8 val = simillar[c];
 					dstoffsetcopy(ret.ptr, &val, &offset, 1);
 				}
+			} else if (algo == 3) {
+				u32 offset_to_dct = offset;
+				dct(b, quad_rect, ret, &offset);
+
+				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3, quad_s * 2, quad_s * 2);
+				xy_to_zigzag(ret.ptr + offset_to_dct, 2, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 2, qx, qy);
+				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 4, 2, qx, qy);
 			}
 			u32 pos = i * (x_blocks_size) + j;
 			blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
 		}
 	}
+	free(quantization_matrix.ptr);
 
 	ret.size = offset;
 	// resize array to adjust to stripped data
@@ -846,13 +883,15 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 	return ret;
 }
 bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
-											 stream blokcs) {
+											 stream blokcs, image *img) {
+	stream quantization_matrix = dct_quatization_matrix(quad_s * 2, quad_s * 2, img->dct_start, img->dct_end, 0);
+
 	// translate form array to bitmap  and interpolate missing quds
 	bitmap *ret = create_bitmap(size.w, size.h, size.w, format);
 	// size of pixel
 	u32 esize = format_bpp(format);
 	// reallocating output stream to avoid memory safety issues if file is corrupted
-	str.ptr = realloc(str.ptr, size.w * size.h * esize);
+	str.ptr = realloc(str.ptr, size.w * size.h * esize * 2);
 	// index of written last byte in stream
 	u32 offset = 0;
 	u32 x_blocks_size = ret->x / quad_s;
@@ -887,15 +926,15 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 			u16 pos = i * x_blocks_size + j;
 			u32 bitshift = (pos % 4 * 2);
 			u8 algo = (blokcs.ptr[pos / 4] & (3 << bitshift)) >> bitshift;
-
+			rect quad_rect;
+			quad_rect.x = quad_s * j;
+			quad_rect.y = quad_s * i;
+			quad_rect.w = qx;
+			quad_rect.h = qy;
 			if (algo == 1) {
 
 				// block is  wasn't skipped and  other pixels are  copied
-				rect quad_rect;
-				quad_rect.x = quad_s * j;
-				quad_rect.y = quad_s * i;
-				quad_rect.w = qx;
-				quad_rect.h = qy;
+
 #if NOSUBSAMPLING
 				defullsampling(ret, quad_rect, str, &offset);
 #else
@@ -961,7 +1000,7 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 						set_pixel(quad_s * j + k, quad_s * i + l, ret, *(u32 *)&pixel);
 					}
 				}
-			} else {
+			} else if (algo == 2) {
 				//prediction mode
 				u8 weight[3];
 				srcoffsetcopy(weight, str.ptr, &offset, 3);
@@ -983,6 +1022,13 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 						set_pixel(quad_s * j + l, quad_s * i + k, ret, out_pixel.pixel);
 					}
 				}
+			} else if (algo == 3) {
+				u32 offset_before_idc = offset;
+				zigzag_to_xy(str.ptr + offset, 2, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy) * 2, 2, qx, qy);
+				zigzag_to_xy(str.ptr + offset + (qx * qy * 4), 2, qx, qy);
+				dct_de_quatization(qx, qy, (u16 *)(str.ptr + offset_before_idc), (u16 *)quantization_matrix.ptr, esize, quad_s * 2, quad_s * 2);
+				idct(str, &offset, quad_rect, ret);
 			}
 #if SHOW_BLOCKS == 1
 			u32 color;
@@ -1003,12 +1049,14 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 #endif
 		}
 	}
+	free(quantization_matrix.ptr);
 	free(str.ptr);
 	return ret;
 }
 void free_image(image *img) {
 	for (u32 i = 0; i < img->length; i++) {
-		free(img->parts[i].pixels.ptr);
+		//wtf?
+		//free(img->parts[i].pixels.ptr);
 		free(img->parts[i].blokcs.ptr);
 	}
 	free(img->parts);
@@ -1120,7 +1168,7 @@ bitmap *yuv_to_rgb(bitmap *b) {
 	}
 	return ret;
 }
-//finds edges on whole image 
+//finds edges on whole image
 void edeges_map(image *img, bitmap *yuv) {
 	stream edges;
 	u64 all_edges = 0;
@@ -1240,4 +1288,239 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset) {
 			set_pixel(j, i, b, pix);
 		}
 	}
+}
+stream dct_quatization_matrix(u8 sizex, u8 sizey, u16 start, u16 end, u16 offset) {
+
+	stream ret;
+	ret.size = sizex * sizey * 2;
+	ret.ptr = malloc(ret.size);
+	u8 start_end_diff = end - start;
+	u16 *arr = (u16 *)ret.ptr;
+	for (u32 i = 0; i < sizey; i++) {
+		for (u32 j = 0; j < sizex; j++) {
+			float distance = pow(((i * i + j * j) / (float)(sizex * sizex + sizey * sizey)), 1.8f);
+			arr[i * sizex + j] = start + start_end_diff * distance;
+		}
+	}
+	return ret;
+}
+void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
+	for (u32 c = 0; c < channels; c++) {
+		for (u32 i = 0; i < sizey; i++) {
+			for (u32 j = 0; j < sizex; j++) {
+				u32 quant = quants[(matrix_h * i / sizey) * matrix_w + (matrix_w * j / sizex)];
+				dct[i * sizex + j + c * sizex * sizey] = roundf(dct[i * sizex + j + c * sizex * sizey] / (float)quant);
+			}
+		}
+	}
+}
+void dct_de_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
+	for (u32 c = 0; c < channels; c++) {
+		for (u32 i = 0; i < sizey; i++) {
+			for (u32 j = 0; j < sizex; j++) {
+				u32 quant = quants[(matrix_h * i / sizey) * matrix_w + (matrix_w * j / sizex)];
+				dct[i * sizex + j + c * sizex * sizey] = dct[i * sizex + j + c * sizex * sizey] * quant;
+			}
+		}
+	}
+}
+void xy_to_zigzag(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		dstoffsetcopy(tmp, (u8 *)matrix + index, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
+void zigzag_to_xy(void *matrix, u32 esize, u32 sizex, u32 sizey) {
+	u8 *tmp = alloca(esize * sizex * sizey);
+	u8 direction = 0;
+	u32 offset = 0;
+	u32 posx = 0;
+	u32 posy = 0;
+	while (offset < esize * sizex * sizey) {
+		u32 index = (posx + posy * sizex) * esize;
+		srcoffsetcopy(tmp + index, matrix, &offset, esize);
+		if (direction) {
+			if (posy == sizey - 1) {
+				direction = 0;
+				posx++;
+			} else if (posx == 0) {
+				direction = 0;
+				if (posy == sizey - 1) {
+					posx++;
+				} else {
+					posy++;
+				}
+			} else {
+				posx--;
+				posy++;
+			}
+		} else {
+			if (posy == 0) {
+				if (posx == sizex - 1) {
+					posy++;
+				} else {
+					posx++;
+				}
+				direction = 1;
+			} else if (posx == sizex - 1) {
+				posy++;
+				direction++;
+			} else {
+				posx++;
+				posy--;
+			}
+		}
+	}
+	memcpy(matrix, tmp, esize * sizex * sizey);
+}
+void dct(bitmap *b, rect area, stream str, u32 *offset) {
+	u32 esize = format_bpp(b->format);
+	float *dct_matrix = alloca(sizeof(float) * area.w * area.h * esize);
+	memset(dct_matrix, 0, sizeof(float) * area.w * area.h * esize);
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					union piexl_data pixel;
+					pixel.pixel = get_pixel(x + area.x, y + area.y, b);
+					for (u32 c = 0; c < esize; c++) {
+						float normalized = (pixel.channels[c] / 127.5f) - 1.0f;
+						dct_matrix[i * area.w + j + area.w * area.h * c] += normalized * cosf((M_PI / (float)area.w) * (x + 0.5f) * j) * cosf((M_PI / (float)area.h) * (y + 0.5f) * i) / (float)(area.w * area.h);
+					}
+				}
+			}
+		}
+	}
+	u16 *out = (u16 *)(str.ptr + *offset);
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				float fval = dct_matrix[area.w * area.h * c + area.w * y + x];
+				if (fval < -1.0f) {
+					fval = -1.0f;
+				} else if (fval > 1.0f) {
+					fval = 1.0f;
+				}
+				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (UINT16_MAX / 2.0f);
+			}
+		}
+	}
+	u32 off = area.w * area.h * sizeof(u16) * esize;
+	*offset += off;
+}
+void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
+	u32 esize = format_bpp(b->format);
+	stream idct_matrix;
+	idct_matrix.ptr = alloca(sizeof(float) * area.w * area.h * esize);
+	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
+	memset(idct_matrix.ptr, 0, idct_matrix.size);
+	float *dct_mat = alloca(esize * area.w * area.h * sizeof(float));
+	u16 *in = (u16 *)(dct_matrix.ptr + *offset);
+	for (u32 c = 0; c < esize; c++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (UINT16_MAX / 2.0f) - 1.0f) * 4.0f;
+			}
+		}
+	}
+	float *pixel = (float *)idct_matrix.ptr;
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 j = 1; j < area.w; j++) {
+			for (u32 y = 0; y < area.h; y++) {
+				for (u32 x = 0; x < area.w; x++) {
+					for (u32 c = 0; c < esize; c++) {
+						float normalized = dct_mat[i * area.w + j + area.w * area.h * c];
+						normalized = normalized * cosf((M_PI / area.w) * (x + 0.5f) * j) * cosf((M_PI / area.h) * (y + 0.5f) * i);
+						pixel[y * area.w + x + area.w * area.h * c] += normalized;
+					}
+				}
+			}
+		}
+	}
+
+	for (u32 i = 1; i < area.h; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i * area.w + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.h) * (y + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
+			}
+		}
+	}
+	for (u32 i = 1; i < area.w; i++) {
+		for (u32 y = 0; y < area.h; y++) {
+			for (u32 x = 0; x < area.w; x++) {
+				for (u32 c = 0; c < esize; c++) {
+					float normalized = dct_mat[i + area.w * area.h * c];
+					normalized = normalized * 0.5f * cosf((M_PI / area.w) * (x + 0.5f) * i);
+					pixel[y * area.w + x + area.w * area.h * c] += normalized;
+				}
+			}
+		}
+	}
+
+	for (u32 i = 0; i < area.h; i++) {
+		for (u32 j = 0; j < area.w; j++) {
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = dct_mat[area.w * area.h * c];
+				normalized = normalized;
+				pixel[i * area.w + j + area.w * area.h * c] += 0.25f * normalized;
+			}
+		}
+	}
+	for (u32 y = 0; y < area.h; y++) {
+		for (u32 x = 0; x < area.w; x++) {
+			union piexl_data px;
+			for (u32 c = 0; c < esize; c++) {
+				float normalized = (pixel[y * area.w + x + area.w * area.h * c] + 1.0f) * 127.5f;
+				if (normalized > 255) {
+					normalized = 255;
+				} else if (normalized < 0) {
+					normalized = 0;
+				}
+				px.channels[c] = normalized;
+			}
+			set_pixel(x + area.x, y + area.y, b, px.pixel);
+		}
+	}
+	*offset += sizeof(u16) * area.w * area.h * esize;
 }

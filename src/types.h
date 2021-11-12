@@ -39,6 +39,26 @@ struct vector {
 	u32 capacity;
 	u8 *data;
 };
+struct rgba_color {
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+};
+typedef struct rgba_color rgba_color;
+struct yuva_color {
+	u8 y;
+	u8 u;
+	u8 v;
+	u8 a;
+};
+typedef struct yuva_color yuva_color;
+union piexl_data {
+	u32 pixel;
+	rgba_color rgba;
+	yuva_color yuva;
+	u8 channels[4];
+};
 typedef struct vector vector;
 bitmap *create_bitmap(u32 size_x, u32 size_y, u32 row, u8 fmt);
 bitmap *copy_bitmap(bitmap *orgin, u32 x, u32 y, u32 w, u32 h);
