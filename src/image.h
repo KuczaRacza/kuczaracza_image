@@ -41,9 +41,9 @@ struct image {
 typedef struct image image;
 struct encode_args {
 	// 0 standard
-	// 1 force yuv  
+	// 1 force yuv
 	// 2 force  index
-	u8  encode_method;
+	u8 encode_method;
 	u32 max_block_size;
 	u32 color_reduction;
 	u32 block_color_sensitivity;
@@ -54,7 +54,7 @@ struct encode_args {
 typedef struct encode_args encode_args;
 
 // encodes whole image from bitmap
-image *encode(bitmap *raw, encode_args args );
+image *encode(bitmap *raw, encode_args args);
 // decode whole image to bitmap
 bitmap *decode(image *img);
 // writes image into array of pixels
@@ -84,7 +84,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 								 rect area);
 // interpolates omitted blocks to fill gaps
 bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
-											 stream blocks, image * img);
+											 stream blocks, image *img);
 void free_image(image *img);
 // needs to be implemented
 u32 average_color(rect area, bitmap *b);
@@ -99,10 +99,8 @@ void defullsampling(bitmap *b, rect area, stream str, u32 *offset);
 void fullsampling(bitmap *b, rect area, stream out, u32 *offset);
 void zigzag_to_xy(void *matrix, u32 esize, u32 sizex, u32 sizey);
 void xy_to_zigzag(void *matrix, u32 esize, u32 sizex, u32 sizey);
-void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels,u32  matrix_w , u32  matrix_h);
-void dct_de_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels,u32  matrix_w , u32  matrix_h);
+void dct_quatization(u32 sizex, u32 sizey, i16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h);
+void dct_de_quatization(u32 sizex, u32 sizey, i16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h);
 stream dct_quatization_matrix(u8 sizex, u8 sizey, u16 start, u16 end, u16 offset);
 void dct(bitmap *b, rect area, stream str, u32 *offset);
 void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b);
-void dct_u16_to_u8(u16 * in , u32 * offset , u32 sizex , u32  sizey);
-void dct_u8_to_u16(u8 * in , u32 * offset , u32 sizex , u32  sizey,u16 * out);

@@ -83,8 +83,8 @@ int main(int argc, char **argv) {
 		} else if (strcmp(argv[i], "--dct-max") == 0) {
 			args.dct_quant_max = atoi(argv[i + 1]);
 
-			if (args.dct_quant_max > 8192 || args.dct_quant_max < 0) {
-				printf("inncorect value --dct-max %i \n", args.encode_method);
+			if (args.dct_quant_max > 16384 || args.dct_quant_max < 0) {
+				printf("inncorect value --dct-max %i \n", args.dct_quant_max);
 				return 0;
 			}
 			i++;

@@ -700,7 +700,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 						difference_sum += powf(pixel_edge, 3.0f);
 					}
 				}
-				difference_sum = difference_sum * 18000 / (b->x * b->y);
+				difference_sum = difference_sum * 1200 / (b->x * b->y);
 
 				u32 min_channel[4];
 				u32 max_channel[4];
@@ -730,7 +730,7 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 					}
 				}
 
-				if (difference_sum < threshold && biggest_difference < threshold) {
+				if (difference_sum < threshold * threshold / 64 && biggest_difference < threshold) {
 					algo = 0;
 				} else {
 					algo = 3;
@@ -866,10 +866,11 @@ stream cut_quads(bitmap *b, u8 quad_s, u8 threshold, stream blocks, image *img,
 				u32 offset_to_dct = offset;
 				dct(b, quad_rect, ret, &offset);
 
-				dct_quatization(qx, qy, (u16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3, quad_s * 2, quad_s * 2);
+				dct_quatization(qx, qy, (i16 *)(ret.ptr + offset_to_dct), (u16 *)quantization_matrix.ptr, 3, quad_s * 2, quad_s * 2);
 				xy_to_zigzag(ret.ptr + offset_to_dct, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 2, 2, qx, qy);
 				xy_to_zigzag(ret.ptr + offset_to_dct + (qx * qy) * 4, 2, qx, qy);
+				//signed_converstion((i16*)(ret.ptr + offset_to_dct), qx * qy);
 			}
 			u32 pos = i * (x_blocks_size) + j;
 			blocks.ptr[pos / 4] = blocks.ptr[pos / 4] | (algo << ((pos % 4) * 2));
@@ -1024,10 +1025,11 @@ bitmap *recreate_quads(stream str, u8 quad_s, rect size, u8 format,
 				}
 			} else if (algo == 3) {
 				u32 offset_before_idc = offset;
+			//	signed_deconverstion((u16)(str.ptr + offset), qx *qy);
 				zigzag_to_xy(str.ptr + offset, 2, qx, qy);
 				zigzag_to_xy(str.ptr + offset + (qx * qy) * 2, 2, qx, qy);
 				zigzag_to_xy(str.ptr + offset + (qx * qy * 4), 2, qx, qy);
-				dct_de_quatization(qx, qy, (u16 *)(str.ptr + offset_before_idc), (u16 *)quantization_matrix.ptr, esize, quad_s * 2, quad_s * 2);
+				dct_de_quatization(qx, qy, (i16 *)(str.ptr + offset_before_idc), (u16 *)quantization_matrix.ptr, esize, quad_s * 2, quad_s * 2);
 				idct(str, &offset, quad_rect, ret);
 			}
 #if SHOW_BLOCKS == 1
@@ -1304,7 +1306,7 @@ stream dct_quatization_matrix(u8 sizex, u8 sizey, u16 start, u16 end, u16 offset
 	}
 	return ret;
 }
-void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
+void dct_quatization(u32 sizex, u32 sizey, i16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
 	for (u32 c = 0; c < channels; c++) {
 		for (u32 i = 0; i < sizey; i++) {
 			for (u32 j = 0; j < sizex; j++) {
@@ -1314,7 +1316,7 @@ void dct_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u
 		}
 	}
 }
-void dct_de_quatization(u32 sizex, u32 sizey, u16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
+void dct_de_quatization(u32 sizex, u32 sizey, i16 *dct, u16 *quants, u8 channels, u32 matrix_w, u32 matrix_h) {
 	for (u32 c = 0; c < channels; c++) {
 		for (u32 i = 0; i < sizey; i++) {
 			for (u32 j = 0; j < sizex; j++) {
@@ -1428,7 +1430,7 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 			}
 		}
 	}
-	u16 *out = (u16 *)(str.ptr + *offset);
+	i16 *out = (i16 *)(str.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
@@ -1438,7 +1440,7 @@ void dct(bitmap *b, rect area, stream str, u32 *offset) {
 				} else if (fval > 1.0f) {
 					fval = 1.0f;
 				}
-				out[area.w * area.h * c + area.w * y + x] = (fval + 1.0f) * (UINT16_MAX / 2.0f);
+				out[area.w * area.h * c + area.w * y + x] = fval * INT16_MAX;
 			}
 		}
 	}
@@ -1452,11 +1454,11 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 	idct_matrix.size = sizeof(float) * area.w * area.h * esize;
 	memset(idct_matrix.ptr, 0, idct_matrix.size);
 	float *dct_mat = alloca(esize * area.w * area.h * sizeof(float));
-	u16 *in = (u16 *)(dct_matrix.ptr + *offset);
+	i16 *in = (i16 *)(dct_matrix.ptr + *offset);
 	for (u32 c = 0; c < esize; c++) {
 		for (u32 y = 0; y < area.h; y++) {
 			for (u32 x = 0; x < area.w; x++) {
-				dct_mat[area.w * area.h * c + area.w * y + x] = (in[area.w * area.h * c + area.w * y + x] / (UINT16_MAX / 2.0f) - 1.0f) * 4.0f;
+				dct_mat[area.w * area.h * c + area.w * y + x] = (float)in[area.w * area.h * c + area.w * y + x] / INT16_MAX * 4.0f;
 			}
 		}
 	}
@@ -1523,4 +1525,28 @@ void idct(stream dct_matrix, u32 *offset, rect area, bitmap *b) {
 		}
 	}
 	*offset += sizeof(u16) * area.w * area.h * esize;
+}
+void signed_converstion(i16 *sig, u32 size) {
+	u16 *usig = (u16 *)sig;
+	for (u32 i = 0; i < size; i++) {
+		i16 tmp = sig[i];
+		u16 out;
+		if (tmp < 0) {
+			out = tmp * -1;
+			out += 0x8000;
+		}
+		usig[i] = out;
+	}
+}
+void signed_deconverstion(u16 *usig, u32 size) {
+	i16 *sig = (i16 *)usig;
+	for (u32 i = 0; i < size; i++) {
+		u16 tmp = sig[i];
+		i16 out;
+		if (tmp > 0x8000) {
+			tmp -= 0x8000;
+			out = tmp * -1;
+		}
+		usig[i] = out;
+	}
 }
